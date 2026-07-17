@@ -54,16 +54,26 @@ function log(msg: string): void {
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
+function hostNameOf(req: http.IncomingMessage): string {
+  const raw = (req.headers.host || '').toLowerCase();
+  if (raw.startsWith('[')) return raw.slice(0, raw.indexOf(']') + 1); // [::1]:80
+  return raw.split(':')[0]!;
+}
+
 // Returns the route name from the Host header, or null for the bare
 // localhost control surface. `.localhost` always works; a custom domain
 // (via `lhp config domain <tld>`) is accepted alongside it.
 function routeName(req: http.IncomingMessage): string | null {
-  const host = (req.headers.host || '').split(':')[0]!.toLowerCase();
+  const host = hostNameOf(req);
   for (const suffix of ['.localhost', `.${DOMAIN}`]) {
     if (host.endsWith(suffix)) return host.slice(0, -suffix.length);
   }
   return null;
 }
+
+// The control API must only answer to genuinely local names — a DNS-rebound
+// hostname pointing at 127.0.0.1 would otherwise reach it from a browser.
+const CONTROL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -94,6 +104,12 @@ function resolveName(requested: string, dir: string): string {
 
 async function handleControl(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const { pathname } = new URL(req.url!, 'http://localhost');
+
+  // Cross-origin form posts can reach localhost without a preflight, but they
+  // can't carry application/json — requiring it shuts that CSRF door.
+  if (req.method === 'POST' && !(req.headers['content-type'] || '').includes('application/json')) {
+    return json(res, 415, { error: 'expected content-type: application/json' });
+  }
 
   if (req.method === 'GET' && pathname === '/api/health') {
     return json(res, 200, { ok: true, pid: process.pid, port: PROXY_PORT, started });
@@ -163,7 +179,12 @@ function proxyRequest(req: http.IncomingMessage, res: http.ServerResponse, route
 const server = http.createServer(async (req, res) => {
   const name = routeName(req);
   try {
-    if (name === null) return await handleControl(req, res);
+    if (name === null) {
+      if (!CONTROL_HOSTS.has(hostNameOf(req))) {
+        return json(res, 421, { error: 'unrecognized host' });
+      }
+      return await handleControl(req, res);
+    }
     const route = routes.get(name);
     if (!route) {
       return html(res, 404, errorHtml(
@@ -205,6 +226,15 @@ server.on('error', (err: NodeJS.ErrnoException) => {
     process.exit(0);
   }
   throw err;
+});
+
+// Loopback only: the proxy fronts local dev servers and the control API is
+// unauthenticated — neither has any business being reachable from the LAN.
+// macOS permits unprivileged port-80 binds only on the wildcard address, so
+// we bind wide and drop non-loopback connections at the socket instead.
+const LOOPBACKS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+server.on('connection', (socket) => {
+  if (!LOOPBACKS.has(socket.remoteAddress ?? '')) socket.destroy();
 });
 
 server.listen(PROXY_PORT, () => {

@@ -102,7 +102,11 @@ try {
   console.error(`\nsmoke test FAILED: ${err instanceof Error ? err.message : err}`);
 } finally {
   lhp.kill('SIGKILL');
-  await fetch(`http://127.0.0.1:${TEST_PORT}/api/shutdown`, { method: 'POST' }).catch(() => {});
+  await fetch(`http://127.0.0.1:${TEST_PORT}/api/shutdown`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  }).catch(() => {});
   fs.rmSync(home, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

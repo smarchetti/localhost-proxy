@@ -37,11 +37,12 @@ interface TemplateVars {
 const HELP = `localhost-proxy — stable per-worktree dev URLs
 
 Usage:
-  lhp [--name <name>] [--port <port>] -- <dev command...>
+  lhp [--name <name>] [--port <port>] [--] <dev command...>
       Wrap a dev command: allocates a port (exported as PORT), registers this
-      worktree with the proxy daemon, and runs the command. Any literal {port}
-      in the command is replaced with the allocated port (for servers that
-      ignore PORT, e.g. vite: lhp -- vite --port {port}).
+      worktree with the proxy daemon, and runs the command. The -- is
+      optional. Any literal {port} in the command is replaced with the
+      allocated port (for servers that ignore PORT, e.g.
+      lhp -- vite --port {port}).
 
   lhp list                 Show registered worktrees
   lhp status               Show daemon status
@@ -386,29 +387,32 @@ async function cmdStop(): Promise<void> {
   console.log('daemon stopped');
 }
 
+const SUBCOMMANDS = new Set(['list', 'ls', 'status', 'stop', 'config', 'setup', 'help', 'run', '-h', '--help']);
+
 export async function main(argv: string[]): Promise<void> {
-  const sep = argv.indexOf('--');
-  const own = sep === -1 ? argv : argv.slice(0, sep);
-  const command = sep === -1 ? [] : argv.slice(sep + 1);
-
+  // Flags are only recognized at the front, and `--` is optional: wrappers
+  // like bun and mise shims consume the first `--` themselves, so anything
+  // that isn't a known subcommand is treated as the dev command to run.
   const flags: Flags = {};
-  const positional: string[] = [];
-  for (let i = 0; i < own.length; i++) {
-    if (own[i] === '--name') flags.name = own[++i];
-    else if (own[i] === '--port') flags.port = own[++i];
-    else positional.push(own[i]!);
+  let i = 0;
+  while (i < argv.length) {
+    if (argv[i] === '--name') { flags.name = argv[i + 1]; i += 2; }
+    else if (argv[i] === '--port') { flags.port = argv[i + 1]; i += 2; }
+    else break;
   }
+  if (argv[i] === '--') i++;
+  const rest = argv.slice(i);
+  const sub = rest[0];
 
-  const sub = positional[0];
+  if (!SUBCOMMANDS.has(sub ?? '')) return cmdRun(flags, rest);
+
   if (sub === 'list' || sub === 'ls') return cmdList();
   if (sub === 'status') return cmdStatus();
   if (sub === 'stop') return cmdStop();
-  if (sub === 'config') return cmdConfig(positional[1], positional[2]);
+  if (sub === 'config') return cmdConfig(rest[1], rest[2]);
   if (sub === 'setup') return cmdSetup();
   if (sub === 'help' || sub === '-h' || sub === '--help') return void console.log(HELP);
-  if (sub === 'run' || sub === undefined) return cmdRun(flags, command);
-
-  console.error(`Unknown command: ${sub}\n`);
-  console.error(HELP);
-  process.exit(1);
+  // 'run': unambiguous form for dev commands whose binary shares a subcommand name
+  const command = rest[1] === '--' ? rest.slice(2) : rest.slice(1);
+  return cmdRun(flags, command);
 }
