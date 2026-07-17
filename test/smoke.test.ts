@@ -54,13 +54,13 @@ const until = async <T>(
 let failed = false;
 const step = (name: string) => console.log(`— ${name}`);
 
-// The fixture plays the dev server. Real dev servers run under Node — and
-// Bun 1.3's node:http drops writes to upgraded sockets, so running the
-// fixture under Bun would break the ws leg from the upstream side.
+// The runtime is Node (the test runner may be Bun, whose node:http drops
+// writes to upgraded sockets) — spawn the CLI, daemon, and fixture exactly
+// as users run them. Node ≥ 23.6 executes the .ts fixture directly.
 const nodeBin = spawnSync('which', ['node'], { encoding: 'utf8' }).stdout.trim() || process.execPath;
 
 const lhp = spawn(
-  process.execPath,
+  nodeBin,
   [`${root}dist/lhp.js`, '--name', 'smoke', '--', nodeBin, `${root}test/fixtures/echo.ts`],
   { env, stdio: ['ignore', 'pipe', 'pipe'] }
 );

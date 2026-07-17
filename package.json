@@ -29,13 +29,13 @@
     "vite"
   ],
   "engines": {
-    "bun": ">=1.2"
+    "node": ">=20"
   },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/lhp.ts src/daemon.ts --target=bun --outdir=dist",
+    "build": "bun build src/lhp.ts src/daemon.ts --target=node --outdir=dist",
     "typecheck": "tsc --noEmit",
     "test": "bun run build && bun test/smoke.test.ts",
     "prepublishOnly": "bun run build"
