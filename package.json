@@ -1,0 +1,49 @@
+{
+  "name": "@smarchetti/localhost-proxy",
+  "version": "0.1.0",
+  "description": "Stable per-worktree dev URLs: run your dev server behind a local reverse proxy and reach each git worktree at http://<worktree>.<repo>.test",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "lhp": "dist/lhp.js",
+    "localhost-proxy": "dist/lhp.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/smarchetti/localhost-proxy.git"
+  },
+  "homepage": "https://github.com/smarchetti/localhost-proxy#readme",
+  "bugs": {
+    "url": "https://github.com/smarchetti/localhost-proxy/issues"
+  },
+  "keywords": [
+    "reverse-proxy",
+    "git-worktree",
+    "dev-server",
+    "localhost",
+    "bun",
+    "nextjs",
+    "vite"
+  ],
+  "engines": {
+    "bun": ">=1.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun build src/lhp.ts src/daemon.ts --target=bun --outdir=dist",
+    "typecheck": "tsc --noEmit",
+    "test": "bun run build && bun test/smoke.test.ts",
+    "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
