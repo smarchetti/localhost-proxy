@@ -24,7 +24,24 @@ const routes = new Map<string, Route>();
 
 fs.mkdirSync(STATE_DIR, { recursive: true });
 loadRoutes();
-setInterval(pruneDead, 5000).unref();
+setInterval(() => { pruneDead(); probeHealth(); }, 5000).unref();
+probeHealth();
+
+// A cheap TCP connect tells the dashboard whether each dev server is
+// actually answering, not just registered.
+function probeHealth(): void {
+  for (const r of routes.values()) {
+    const sock = net.connect({ port: r.port, host: PROXY_HOST });
+    const timer = setTimeout(() => { sock.destroy(); r.healthy = false; }, 500);
+    sock.on('connect', () => { clearTimeout(timer); r.healthy = true; sock.end(); });
+    sock.on('error', () => { clearTimeout(timer); r.healthy = false; });
+  }
+}
+
+function countHit(route: Route): void {
+  route.hits = (route.hits ?? 0) + 1;
+  route.lastHit = Date.now();
+}
 
 function loadRoutes(): void {
   try {
@@ -119,11 +136,18 @@ async function handleControl(req: http.IncomingMessage, res: http.ServerResponse
     return json(res, 200, { ok: true, pid: process.pid, port: PROXY_PORT, started });
   }
   if (req.method === 'GET' && pathname === '/api/routes') {
-    return json(res, 200, { routes: [...routes.values()] });
+    return json(res, 200, {
+      routes: [...routes.values()].map((r) => ({ ...r, url: proxyUrl(r.name) })),
+      daemon: { pid: process.pid, port: PROXY_PORT, domain: DOMAIN, https: HTTPS_ENABLED, started },
+    });
   }
   if (req.method === 'POST' && pathname === '/api/register') {
     const body = await readBody(req);
-    const name = resolveName(body.name as string, body.dir as string);
+    if (typeof body.name !== 'string' || typeof body.dir !== 'string' ||
+        !Number.isInteger(body.port) || (body.port as number) < 1 || (body.port as number) > 65535) {
+      return json(res, 400, { error: 'invalid registration' });
+    }
+    const name = resolveName(body.name, body.dir);
     const route = { ...body, name, since: Date.now() } as unknown as Route;
     routes.set(name, route);
     saveRoutes();
@@ -154,6 +178,7 @@ async function handleControl(req: http.IncomingMessage, res: http.ServerResponse
 }
 
 function proxyRequest(req: http.IncomingMessage, res: http.ServerResponse, route: Route): void {
+  countHit(route);
   const headers: http.OutgoingHttpHeaders = { ...req.headers };
   headers['x-forwarded-host'] = req.headers.host;
   headers['x-forwarded-proto'] = (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http';
@@ -211,6 +236,7 @@ function upgradeHandler(req: http.IncomingMessage, socket: net.Socket, head: Buf
   const route = name ? routes.get(name) : undefined;
   if (!route) return void socket.destroy();
 
+  countHit(route);
   const upstream = net.connect(route.port, PROXY_HOST, () => {
     let raw = `${req.method} ${req.url} HTTP/1.1\r\n`;
     for (let i = 0; i < req.rawHeaders.length; i += 2) {

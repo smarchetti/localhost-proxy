@@ -20,6 +20,10 @@ export interface Route {
   branch?: string | null;
   cmd?: string;
   since: number;
+  // Runtime state maintained by the daemon (not meaningful when persisted):
+  healthy?: boolean; // did the upstream accept a TCP connect on the last probe
+  hits?: number; // proxied requests + upgrades
+  lastHit?: number; // timestamp of the most recent one
 }
 
 export const PROXY_HOST = '127.0.0.1';
