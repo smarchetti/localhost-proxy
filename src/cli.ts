@@ -158,11 +158,27 @@ async function daemonAlive(): Promise<Health | null> {
   }
 }
 
+// Bun's node:http server emits 'upgrade' but drops writes to the upgraded
+// socket, so WebSocket passthrough (HMR — and Next 16 hydration, which
+// streams over the HMR socket) dies before the 101 reaches the client.
+// The daemon is pure node:* code, so run it under Node even when the CLI
+// itself runs under Bun.
+function daemonExecPath(): string {
+  if (!process.versions.bun) return process.execPath;
+  try {
+    const node = execFileSync('which', ['node'], { encoding: 'utf8' }).trim();
+    if (node) return node;
+  } catch {
+    // No Node on PATH — fall through to Bun; HTTP proxying still works.
+  }
+  return process.execPath;
+}
+
 async function ensureDaemon(): Promise<void> {
   if (await daemonAlive()) return;
   fs.mkdirSync(STATE_DIR, { recursive: true });
   const logFd = fs.openSync(LOG_FILE, 'a');
-  spawn(process.execPath, [DAEMON_PATH], {
+  spawn(daemonExecPath(), [DAEMON_PATH], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
     env: process.env,

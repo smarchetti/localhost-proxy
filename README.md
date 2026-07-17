@@ -169,6 +169,7 @@ For OAuth providers (Okta, Google, …) the provider's app config must whitelist
 - **Crashed processes**: the daemon prunes routes whose registering process is gone, so stale entries clean themselves up.
 - **Daemon restarts**: routes are persisted to `~/.lhp/routes.json` and reloaded (still pruned by liveness). Daemon logs go to `~/.lhp/daemon.log`.
 - **Zero runtime dependencies**: TypeScript source bundled with `bun build --target=bun` into two self-contained files (`dist/lhp.js` CLI + `dist/daemon.js`). Runs on Bun ≥ 1.2.
+- **The daemon prefers Node**: Bun 1.3's `node:http` drops writes to upgraded WebSocket sockets, which would kill HMR through the proxy. The CLI (running under Bun) spawns the daemon under Node when it's on PATH, falling back to Bun (HTTP proxying still works) when it isn't. Revisit when the Bun bug is fixed.
 
 ## Develop
 

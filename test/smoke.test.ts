@@ -5,6 +5,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import assert from 'node:assert';
+import net from 'node:net';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -53,9 +54,14 @@ const until = async <T>(
 let failed = false;
 const step = (name: string) => console.log(`— ${name}`);
 
+// The fixture plays the dev server. Real dev servers run under Node — and
+// Bun 1.3's node:http drops writes to upgraded sockets, so running the
+// fixture under Bun would break the ws leg from the upstream side.
+const nodeBin = spawnSync('which', ['node'], { encoding: 'utf8' }).stdout.trim() || process.execPath;
+
 const lhp = spawn(
   process.execPath,
-  [`${root}dist/lhp.js`, '--name', 'smoke', '--', process.execPath, `${root}test/fixtures/echo.ts`],
+  [`${root}dist/lhp.js`, '--name', 'smoke', '--', nodeBin, `${root}test/fixtures/echo.ts`],
   { env, stdio: ['ignore', 'pipe', 'pipe'] }
 );
 lhp.stdout.on('data', () => {});
@@ -90,6 +96,26 @@ try {
   const dash = await get('/');
   assert.equal(dash.status, 200);
   assert.match(dash.text, /smoke\.localhost/);
+
+  step('websocket upgrade is piped through (the path Bun 1.3 breaks)');
+  const wsTranscript = await new Promise<string>((resolve, reject) => {
+    const sock = net.connect(TEST_PORT, '127.0.0.1');
+    const timer = setTimeout(() => { sock.destroy(); reject(new Error('ws upgrade timed out')); }, 4000);
+    let buf = '';
+    let pinged = false;
+    sock.on('data', (d) => {
+      buf += d.toString();
+      if (!pinged && buf.includes('hello-from-upstream')) { pinged = true; sock.write('ping-123'); }
+      if (buf.includes('ping-123')) { clearTimeout(timer); sock.end(); resolve(buf); }
+    });
+    sock.on('error', (e) => { clearTimeout(timer); reject(e); });
+    sock.write(
+      `GET /hmr HTTP/1.1\r\nHost: smoke.localhost:${TEST_PORT}\r\n` +
+      'Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n'
+    );
+  });
+  assert.match(wsTranscript, /101 Switching Protocols/, 'upgrade response reached the client');
+  assert.match(wsTranscript, /ping-123/, 'bytes echoed back through the piped socket');
 
   step('https serves the same route with a CA-signed cert');
   // fetch can't pin a custom CA portably across runtimes; curl can.
