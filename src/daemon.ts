@@ -73,7 +73,9 @@ function routeName(req: http.IncomingMessage): string | null {
 
 // The control API must only answer to genuinely local names — a DNS-rebound
 // hostname pointing at 127.0.0.1 would otherwise reach it from a browser.
-const CONTROL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+// The bare configured domain (http://test) is safe: it only resolves through
+// our /etc/resolver entry to loopback, and it makes a handy dashboard URL.
+const CONTROL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', DOMAIN]);
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
