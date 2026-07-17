@@ -8,12 +8,14 @@
 // process dies.
 
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 import fs from 'node:fs';
 import {
-  PROXY_PORT, PROXY_HOST, DOMAIN, DNS_PORT, STATE_DIR, ROUTES_FILE,
-  pidAlive, proxyUrl, type Route,
+  PROXY_PORT, PROXY_HOST, DOMAIN, DNS_PORT, HTTPS_ENABLED, HTTPS_PORT,
+  STATE_DIR, ROUTES_FILE, pidAlive, proxyUrl, type Route,
 } from './shared';
+import { ensureCa, ensureLeaf, LEAF_KEY, LEAF_CERT } from './certs';
 import { dashboardHtml, errorHtml, esc } from './pages';
 import { startDnsServer } from './dns';
 
@@ -125,6 +127,7 @@ async function handleControl(req: http.IncomingMessage, res: http.ServerResponse
     const route = { ...body, name, since: Date.now() } as unknown as Route;
     routes.set(name, route);
     saveRoutes();
+    refreshHttps();
     log(`registered ${name} -> :${route.port} (${route.dir})`);
     return json(res, 200, { name, url: proxyUrl(name) });
   }
@@ -153,7 +156,7 @@ async function handleControl(req: http.IncomingMessage, res: http.ServerResponse
 function proxyRequest(req: http.IncomingMessage, res: http.ServerResponse, route: Route): void {
   const headers: http.OutgoingHttpHeaders = { ...req.headers };
   headers['x-forwarded-host'] = req.headers.host;
-  headers['x-forwarded-proto'] = 'http';
+  headers['x-forwarded-proto'] = (req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http';
   headers['x-forwarded-for'] = req.socket.remoteAddress ?? undefined;
 
   const upstream = http.request(
@@ -178,7 +181,7 @@ function proxyRequest(req: http.IncomingMessage, res: http.ServerResponse, route
   res.on('close', () => upstream.destroy());
 }
 
-const server = http.createServer(async (req, res) => {
+async function requestHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const name = routeName(req);
   try {
     if (name === null) {
@@ -200,13 +203,13 @@ const server = http.createServer(async (req, res) => {
     log(`error handling ${req.url}: ${err instanceof Error ? err.stack : err}`);
     if (!res.headersSent) json(res, 500, { error: String(err) });
   }
-});
+}
 
 // WebSocket (and any other Upgrade) passthrough — needed for HMR.
-server.on('upgrade', (req, socket, head) => {
+function upgradeHandler(req: http.IncomingMessage, socket: net.Socket, head: Buffer): void {
   const name = routeName(req);
   const route = name ? routes.get(name) : undefined;
-  if (!route) return socket.destroy();
+  if (!route) return void socket.destroy();
 
   const upstream = net.connect(route.port, PROXY_HOST, () => {
     let raw = `${req.method} ${req.url} HTTP/1.1\r\n`;
@@ -220,8 +223,22 @@ server.on('upgrade', (req, socket, head) => {
   });
   upstream.on('error', () => socket.destroy());
   socket.on('error', () => upstream.destroy());
-});
+}
 
+// Loopback only: the proxy fronts local dev servers and the control API is
+// unauthenticated — neither has any business being reachable from the LAN.
+// macOS permits unprivileged low-port binds only on the wildcard address, so
+// we bind wide and drop non-loopback connections at the socket instead.
+const LOOPBACKS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function guard(server: http.Server | https.Server): void {
+  server.on('connection', (socket: net.Socket) => {
+    if (!LOOPBACKS.has(socket.remoteAddress ?? '')) socket.destroy();
+  });
+  server.on('upgrade', upgradeHandler);
+}
+
+const server = http.createServer(requestHandler);
+guard(server);
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     log(`port ${PROXY_PORT} already in use — another daemon is likely running`);
@@ -229,19 +246,76 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   }
   throw err;
 });
-
-// Loopback only: the proxy fronts local dev servers and the control API is
-// unauthenticated — neither has any business being reachable from the LAN.
-// macOS permits unprivileged port-80 binds only on the wildcard address, so
-// we bind wide and drop non-loopback connections at the socket instead.
-const LOOPBACKS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
-server.on('connection', (socket) => {
-  if (!LOOPBACKS.has(socket.remoteAddress ?? '')) socket.destroy();
-});
-
 server.listen(PROXY_PORT, () => {
   log(`lhp daemon listening on http://localhost:${PROXY_PORT} (pid ${process.pid}, domain .${DOMAIN})`);
 });
+
+// ── https ─────────────────────────────────────────────────────────────────
+// One multi-SAN cert covers every registered host (TLS wildcards can't span
+// labels, clients reject TLD-depth wildcards, and Bun lacks SNICallback).
+// When a new host appears the leaf is re-minted and the listener swapped.
+
+function computeSans(): string[] {
+  const sans = new Set(['DNS:localhost', 'IP:127.0.0.1', `DNS:${DOMAIN}`]);
+  for (const r of routes.values()) {
+    sans.add(`DNS:${r.name}.${DOMAIN}`);
+    const parent = r.name.split('.').slice(1).join('.');
+    if (parent) sans.add(`DNS:*.${parent}.${DOMAIN}`);
+  }
+  return [...sans];
+}
+
+let httpsServer: https.Server | null = null;
+let swapping = false;
+
+function startHttpsServer(): void {
+  const srv = https.createServer(
+    { key: fs.readFileSync(LEAF_KEY), cert: fs.readFileSync(LEAF_CERT) },
+    requestHandler
+  );
+  guard(srv);
+  srv.on('error', (err: NodeJS.ErrnoException) => {
+    log(`https listener error: ${err.code || err.message}`);
+    if (httpsServer === srv) httpsServer = null;
+  });
+  srv.listen(HTTPS_PORT, () => {
+    log(`https listening on :${HTTPS_PORT}`);
+  });
+  httpsServer = srv;
+}
+
+function refreshHttps(): void {
+  if (!HTTPS_ENABLED || swapping) return;
+  try {
+    const minted = ensureLeaf(computeSans());
+    if (httpsServer && !minted) return;
+    if (httpsServer) {
+      swapping = true;
+      const old = httpsServer;
+      httpsServer = null;
+      (old as { closeAllConnections?: () => void }).closeAllConnections?.();
+      old.close(() => {
+        swapping = false;
+        startHttpsServer();
+      });
+    } else {
+      startHttpsServer();
+    }
+  } catch (err) {
+    log(`https cert refresh failed: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+if (HTTPS_ENABLED) {
+  try {
+    if (ensureCa()) {
+      log(`created local CA — run \`lhp setup\` so the system trusts it`);
+    }
+    refreshHttps();
+  } catch (err) {
+    log(`https disabled — CA setup failed: ${err instanceof Error ? err.message : err}`);
+  }
+}
 
 if (DOMAIN !== 'localhost') {
   startDnsServer(DNS_PORT, PROXY_HOST, ({ port }) => {

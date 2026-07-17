@@ -4,9 +4,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  PROXY_PORT, DOMAIN, DNS_PORT, SCHEME, STATE_DIR, LOG_FILE, CONFIG_FILE,
+  PROXY_PORT, DOMAIN, DNS_PORT, SCHEME, HTTPS_ENABLED, HTTPS_PORT,
+  STATE_DIR, LOG_FILE, CONFIG_FILE,
   sanitizeName, api, proxyUrl, readConfig, writeConfig, type Route,
 } from './shared';
+import { ensureCa, CA_CERT } from './certs';
 
 // In the published bundle this module lives in dist/lhp.js next to
 // dist/daemon.js; when running from source, bun executes daemon.ts directly.
@@ -51,7 +53,9 @@ Usage:
   lhp config port <n>      Set the proxy's listen port (default 80: port-free URLs)
   lhp config domain <tld>  Set the URL domain (default "test"; "localhost" needs no setup)
   lhp config scheme <s>    "worktree.repo" (default) or "worktree" (no repo subdomain)
-  lhp setup                One-time sudo step non-localhost domains need (/etc/resolver)
+  lhp config https on|off  Serve worktree URLs over https (local CA; default off)
+  lhp setup                One-time sudo step: /etc/resolver entry for the domain,
+                           plus trusting the local CA when https is on
   lhp help                 Show this help
 
 The proxy listens on http://localhost:${PROXY_PORT} (dashboard) and routes
@@ -311,7 +315,10 @@ async function cmdConfig(key?: string, value?: string): Promise<void> {
   if (!key) {
     console.log(`config file: ${CONFIG_FILE}`);
     console.log(JSON.stringify(readConfig(), null, 2));
-    console.log(`\neffective:  port=${PROXY_PORT}  domain=${DOMAIN}  scheme=${SCHEME}  dnsPort=${DNS_PORT}`);
+    console.log(
+      `\neffective:  port=${PROXY_PORT}  domain=${DOMAIN}  scheme=${SCHEME}  dnsPort=${DNS_PORT}` +
+      `  https=${HTTPS_ENABLED ? `on (:${HTTPS_PORT})` : 'off'}`
+    );
     const example = SCHEME === 'worktree.repo' ? '<worktree>.<repo>' : '<worktree>';
     console.log(`worktree URLs look like: ${proxyUrl(example)}`);
     return;
@@ -342,14 +349,24 @@ async function cmdConfig(key?: string, value?: string): Promise<void> {
       process.exit(1);
     }
     config.scheme = value;
+  } else if (key === 'https') {
+    if (value !== 'on' && value !== 'off') {
+      console.error(`Invalid value: "${value}" (valid: on, off)`);
+      process.exit(1);
+    }
+    if (value === 'on') config.https = true;
+    else delete config.https;
   } else {
-    console.error(`Unknown config key: ${key} (valid: port, domain, scheme)`);
+    console.error(`Unknown config key: ${key} (valid: port, domain, scheme, https)`);
     process.exit(1);
   }
   writeConfig(config);
   console.log(`Saved to ${CONFIG_FILE}: ${JSON.stringify(config)}`);
   if (config.domain && config.domain !== 'localhost') {
     console.log(`\nCustom domains need a one-time resolver entry: run \`lhp setup\``);
+  }
+  if (key === 'https' && config.https) {
+    console.log(`\nhttps needs the local CA in your trust store: run \`lhp setup\``);
   }
   if (await daemonAlive()) {
     console.log(`\nThe daemon is running with the old settings — run \`lhp stop\`;`);
@@ -358,24 +375,53 @@ async function cmdConfig(key?: string, value?: string): Promise<void> {
 }
 
 async function cmdSetup(): Promise<void> {
-  if (DOMAIN === 'localhost') {
-    console.log('Domain is "localhost" — no setup needed, *.localhost already resolves.');
+  const steps: string[] = [];
+  const script: string[] = [];
+
+  if (DOMAIN !== 'localhost') {
+    const resolverFile = `/etc/resolver/${DOMAIN}`;
+    steps.push(
+      `• write ${resolverFile} so macOS sends *.${DOMAIN} lookups to lhp's` +
+      `\n  local DNS responder (127.0.0.1:${DNS_PORT}); delete the file to undo`
+    );
+    script.push(
+      `mkdir -p /etc/resolver`,
+      `printf 'nameserver 127.0.0.1\\nport ${DNS_PORT}\\n' > ${resolverFile}`,
+      `dscacheutil -flushcache`,
+      `killall -HUP mDNSResponder`
+    );
+  }
+
+  if (HTTPS_ENABLED) {
+    if (ensureCa()) console.log(`Created local CA at ${CA_CERT}\n`);
+    steps.push(
+      `• trust the local CA (name-constrained to .${DOMAIN} and .localhost —` +
+      `\n  it cannot sign for real websites) in the system keychain`
+    );
+    script.push(
+      `security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain '${CA_CERT}'`
+    );
+  }
+
+  if (!script.length) {
+    console.log('Domain is "localhost" and https is off — nothing to set up.');
     return;
   }
-  const resolverFile = `/etc/resolver/${DOMAIN}`;
-  const content = `nameserver 127.0.0.1\nport ${DNS_PORT}\n`;
-  console.log(`Writing ${resolverFile} so macOS sends *.${DOMAIN} lookups to lhp's`);
-  console.log(`local DNS responder (127.0.0.1:${DNS_PORT}). This needs sudo:\n`);
-  const script =
-    `mkdir -p /etc/resolver && printf '${content}' > ${resolverFile}` +
-    ` && dscacheutil -flushcache && killall -HUP mDNSResponder`;
-  const result = spawnSync('sudo', ['sh', '-c', script], { stdio: 'inherit' });
+
+  console.log('This needs sudo, to:');
+  console.log(steps.join('\n') + '\n');
+  const cmd = script.join(' && ');
+  const result = spawnSync('sudo', ['sh', '-c', cmd], { stdio: 'inherit' });
   if (result.status !== 0) {
-    console.error(`\nsetup failed — you can do it manually:\n  sudo sh -c "${script}"`);
+    console.error(`\nsetup failed — you can do it manually:\n  sudo sh -c "${cmd}"`);
     process.exit(1);
   }
-  console.log(`\nDone. *.${DOMAIN} now resolves to 127.0.0.1 whenever the daemon is running.`);
-  console.log(`Worktree URLs: ${proxyUrl('<worktree>')}`);
+  console.log(`\nDone. Worktree URLs: ${proxyUrl('<worktree>')}`);
+  if (HTTPS_ENABLED) {
+    console.log('Firefox keeps its own trust store: set security.enterprise_roots.enabled');
+    console.log('to true in about:config so it uses the system keychain.');
+    console.log('If the daemon is running, `lhp stop` — it restarts with https on the next dev run.');
+  }
 }
 
 async function cmdStop(): Promise<void> {

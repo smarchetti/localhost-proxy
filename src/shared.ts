@@ -7,6 +7,8 @@ export interface LhpConfig {
   domain?: string;
   dnsPort?: number;
   scheme?: 'worktree' | 'worktree.repo';
+  https?: boolean;
+  httpsPort?: number;
 }
 
 export interface Route {
@@ -53,11 +55,19 @@ export const DNS_PORT = Number(process.env.LHP_DNS_PORT || config.dnsPort || 535
 // 'worktree.repo' -> feature-auth.my-repo.test; 'worktree' -> feature-auth.test
 export const SCHEME = process.env.LHP_SCHEME || config.scheme || 'worktree.repo';
 
+const envHttps = process.env.LHP_HTTPS;
+export const HTTPS_ENABLED = envHttps != null ? envHttps === '1' || envHttps === 'true' : config.https === true;
+export const HTTPS_PORT = Number(process.env.LHP_HTTPS_PORT || config.httpsPort || 443);
+
 export function controlUrl(pathname: string): string {
   return `http://${PROXY_HOST}:${PROXY_PORT}${pathname}`;
 }
 
 export function proxyUrl(name: string): string {
+  if (HTTPS_ENABLED) {
+    const port = HTTPS_PORT === 443 ? '' : `:${HTTPS_PORT}`;
+    return `https://${name}.${DOMAIN}${port}`;
+  }
   const port = PROXY_PORT === 80 ? '' : `:${PROXY_PORT}`;
   return `http://${name}.${DOMAIN}${port}`;
 }

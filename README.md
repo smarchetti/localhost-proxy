@@ -117,6 +117,17 @@ Only `.localhost` resolves to loopback natively. For any other domain (including
 
 Domains that can't work are refused: `.dev` and `.app` (real TLDs, HSTS-preloaded — browsers force `https://`), and `.local` (taken by Bonjour). `.test` is IETF-reserved and safe, as is anything made up.
 
+### HTTPS
+
+```sh
+lhp config https on
+lhp setup            # sudo: adds the local CA to the system trust store
+```
+
+Worktree URLs become `https://feature-auth.my-repo.test` (port 443, no suffix; http on port 80 keeps working alongside). Public CAs can't issue for `.test`, so the daemon runs its own CA (`~/.lhp/ca`) — **name-constrained to your configured domain and `.localhost`**, so even if the key leaked it cannot sign for real websites (verifiably: such a cert fails validation with a permitted-subtree violation). The daemon maintains one multi-SAN certificate covering every registered host plus a `*.<repo>.<domain>` wildcard per repo, re-minting automatically as routes appear. `X-Forwarded-Proto: https` is set and injected URLs (`LHP_URL`, `AUTH_URL`, …) switch to https.
+
+Why you'd want it: OAuth wildcard redirect URIs (e.g. Okta only wildcard-matches `https://` URIs, so `https://*.my-repo.test/api/auth/callback/okta` covers every worktree), `Secure` cookies, and calling https APIs without mixed-content errors. Firefox users: enable `security.enterprise_roots.enabled` so Firefox honors the system trust store.
+
 ### Naming scheme
 
 The default `worktree.repo` scheme scopes each worktree under its repo — with several repos each having worktrees, `feature-auth.my-repo.test` and `feature-auth.other-repo.test` never collide, and the dashboard groups by repo. The repo name comes from the main repository's directory name (all worktrees share it via the common `.git` dir), falling back to the `origin` remote. The main checkout doesn't double up: a repo checked out at `~/dev/my-repo` is just `my-repo.test`, not `my-repo.my-repo.test`.
@@ -150,7 +161,7 @@ Apps that build absolute URLs (auth flows, OAuth callbacks, share links) must bu
 
 Precedence: shell env > project config > built-in defaults — an explicitly exported variable is never overridden. Shell env also beats `.env` files in Next, so injected values win over a stale `NEXTAUTH_URL=http://localhost:3000` in `.env.local`. The `{url}`/`{name}` placeholders also work in the wrapped command itself, alongside `{port}`.
 
-For OAuth providers (Okta, Google, …) the provider's app config must whitelist each worktree's callback URL, e.g. `http://feature-auth.my-repo.test/api/auth/callback/okta`.
+For OAuth providers (Okta, Google, …) the provider's app config must whitelist each worktree's callback URL, e.g. `http://feature-auth.my-repo.test/api/auth/callback/okta` — or turn on [HTTPS](#https) and register one wildcard (`https://*.my-repo.test/api/auth/callback/okta`) where the provider supports it (Okta wildcard-matches https URIs only).
 
 ## Details worth knowing
 

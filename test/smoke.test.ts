@@ -3,7 +3,7 @@
 // Runs against the BUILT bundle (dist/) — `bun run test` builds first.
 // Uses a dedicated proxy port so it never touches a real daemon.
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import type { Route } from '../src/shared';
 
 const TEST_PORT = 7799;
+const TEST_HTTPS_PORT = 7798;
 const root = fileURLToPath(new URL('..', import.meta.url));
 // Isolated HOME so the test never reads or writes the user's real ~/.lhp
 // (config, routes, daemon log) — it must be hermetic even while a real
@@ -22,6 +23,8 @@ const env: Record<string, string | undefined> = {
   ...process.env,
   HOME: home,
   LHP_PROXY_PORT: String(TEST_PORT),
+  LHP_HTTPS: '1',
+  LHP_HTTPS_PORT: String(TEST_HTTPS_PORT),
   LHP_DOMAIN: 'localhost',
   LHP_SCHEME: 'worktree',
 };
@@ -87,6 +90,18 @@ try {
   const dash = await get('/');
   assert.equal(dash.status, 200);
   assert.match(dash.text, /smoke\.localhost/);
+
+  step('https serves the same route with a CA-signed cert');
+  // fetch can't pin a custom CA portably across runtimes; curl can.
+  const curl = spawnSync('curl', [
+    '-sS', '--cacert', path.join(home, '.lhp', 'ca', 'ca.pem'),
+    '--resolve', `smoke.localhost:${TEST_HTTPS_PORT}:127.0.0.1`,
+    `https://smoke.localhost:${TEST_HTTPS_PORT}/via-tls`,
+  ], { encoding: 'utf8' });
+  assert.equal(curl.status, 0, `curl failed: ${curl.stderr}`);
+  const tlsBody = JSON.parse(curl.stdout);
+  assert.equal(tlsBody.url, '/via-tls');
+  assert.equal(tlsBody.proto, 'https', 'x-forwarded-proto should be https over TLS');
 
   step('route is removed when the wrapper exits');
   lhp.kill('SIGTERM');

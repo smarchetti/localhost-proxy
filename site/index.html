@@ -261,6 +261,7 @@
       <div class="ref-row"><code>lhp config port 7777</code><span>Move the proxy off port 80 — URLs gain <code>:7777</code></span></div>
       <div class="ref-row"><code>lhp config domain localhost</code><span>Zero-setup mode: <code>*.localhost</code> resolves natively, no sudo step</span></div>
       <div class="ref-row"><code>lhp config scheme worktree</code><span>Flat names without the repo subdomain</span></div>
+      <div class="ref-row"><code>lhp config https on</code><span>Serve <code>https://</code> URLs via a local CA (name-constrained to your dev domains) — enables OAuth wildcard redirect URIs like <code>https://*.my-repo.test/…</code></span></div>
       <div class="ref-row"><code>lhp setup</code><span>One-time <code>/etc/resolver</code> entry for any non-localhost domain</span></div>
       <div class="ref-row"><code>--name · --port</code><span>Per-run overrides for the worktree name and upstream port</span></div>
     </div>
