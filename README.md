@@ -1,5 +1,7 @@
 # localhost-proxy
 
+**Docs: [localhost-proxy.vercel.app](https://localhost-proxy.vercel.app)**
+
 Stable per-worktree dev URLs. Stop juggling `localhost:3000` vs `:3001` vs `:3002` across git worktrees — each worktree gets a named URL that never changes:
 
 ```

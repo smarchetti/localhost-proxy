@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>localhost-proxy — stable per-worktree dev URLs</title>
+<meta name="description" content="Run your dev server behind a local reverse proxy and reach each git worktree at http://<worktree>.<repo>.test — no ports, no collisions, one dashboard.">
+<meta property="og:title" content="localhost-proxy">
+<meta property="og:description" content="Stable per-worktree dev URLs. Stop juggling localhost:3000 vs :3001 across git worktrees.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔀</text></svg>">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfa;
+    --fg: #1c1c1a;
+    --dim: #6f6f6a;
+    --line: #e6e6e2;
+    --card: #ffffff;
+    --code-bg: #f4f4f1;
+    --accent: #0d7d5c;
+    --accent-soft: #0d7d5c1a;
+    --term-bg: #1a1c1b;
+    --term-fg: #d6e2dc;
+    --term-dim: #7d8a84;
+    --term-green: #4cc38a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131413;
+      --fg: #e8e8e5;
+      --dim: #96968f;
+      --line: #26272521;
+      --line: #2a2b29;
+      --card: #191b1a;
+      --code-bg: #202221;
+      --accent: #4cc38a;
+      --accent-soft: #4cc38a1a;
+      --term-bg: #0d0e0d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 0 1.5rem; }
+  code, pre, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  code { background: var(--code-bg); padding: .15em .4em; border-radius: 5px; font-size: .88em; }
+  pre { margin: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  header { padding: 5rem 0 3rem; }
+  .badge {
+    display: inline-block; font-size: .78rem; font-weight: 500;
+    color: var(--accent); background: var(--accent-soft);
+    padding: .25rem .7rem; border-radius: 99px; margin-bottom: 1.25rem;
+  }
+  h1 { font-size: 2.3rem; line-height: 1.15; margin: 0 0 1rem; letter-spacing: -.02em; }
+  .lede { font-size: 1.15rem; color: var(--dim); max-width: 38rem; margin: 0 0 2rem; }
+  .lede strong { color: var(--fg); font-weight: 600; }
+
+  .term {
+    background: var(--term-bg); color: var(--term-fg);
+    border-radius: 10px; padding: 1.1rem 1.3rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: .85rem; line-height: 1.7;
+    overflow-x: auto; box-shadow: 0 8px 30px rgb(0 0 0 / .12);
+  }
+  .term .c { color: var(--term-dim); }
+  .term .g { color: var(--term-green); }
+  .term .strike { text-decoration: line-through; opacity: .45; }
+
+  .install {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    margin: 1.75rem 0 0;
+  }
+  .install .term { flex: 1; min-width: 16rem; padding: .7rem 1.1rem; box-shadow: none; }
+  .gh {
+    font-size: .9rem; font-weight: 500; white-space: nowrap;
+    border: 1px solid var(--line); border-radius: 8px; padding: .55rem 1rem;
+    color: var(--fg);
+  }
+  .gh:hover { border-color: var(--accent); text-decoration: none; }
+
+  section { padding: 2.5rem 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); font-weight: 600; margin: 0 0 1.25rem; }
+  h3 { font-size: 1rem; margin: 1.75rem 0 .5rem; }
+  p { margin: .75rem 0; }
+  .dim { color: var(--dim); }
+
+  .steps { display: grid; gap: 1rem; margin-top: 1.25rem; counter-reset: step; }
+  .step { display: grid; grid-template-columns: 2rem 1fr; gap: .75rem; align-items: start; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: .8rem; font-weight: 600;
+    display: flex; align-items: center; justify-content: center; margin-top: .15rem;
+  }
+  .step .term { margin-top: .5rem; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin-top: 1.25rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1.1rem 1.2rem;
+  }
+  .card b { display: block; margin-bottom: .3rem; font-size: .95rem; }
+  .card p { margin: 0; font-size: .88rem; color: var(--dim); }
+
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .9rem; }
+  th { text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); padding: 0 1rem .5rem 0; font-weight: 600; }
+  td { padding: .55rem 1rem .55rem 0; border-top: 1px solid var(--line); vertical-align: top; }
+  td:first-child { white-space: nowrap; }
+
+  footer { padding: 3rem 0 4rem; border-top: 1px solid var(--line); color: var(--dim); font-size: .9rem; }
+  footer .wrap { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <span class="badge">bunx @smarchetti/localhost-proxy</span>
+    <h1>Every git worktree,<br>one stable URL.</h1>
+    <p class="lede">Stop juggling <code>localhost:3000</code> vs <code>:3001</code> vs <code>:3002</code>. <strong>localhost-proxy</strong> runs your dev servers behind a tiny local reverse proxy, so each worktree keeps a named URL that never changes.</p>
+    <div class="term">
+<pre><span class="strike">http://localhost:3000</span>   <span class="c">which branch was this again?</span>
+<span class="strike">http://localhost:3001</span>
+<span class="strike">http://localhost:3002</span>
+
+<span class="g">http://main.tpg-code.test</span>
+<span class="g">http://feature-auth.tpg-code.test</span>
+<span class="g">http://fix-billing.other-repo.test</span></pre>
+    </div>
+    <div class="install">
+      <div class="term"><pre>bun add -g @smarchetti/localhost-proxy</pre></div>
+      <a class="gh" href="https://github.com/smarchetti/localhost-proxy">GitHub →</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>Quick start</h2>
+    <div class="steps">
+      <div class="step"><div>
+        One-time DNS setup for the <code>.test</code> domain <span class="dim">(writes <code>/etc/resolver/test</code>, needs sudo; delete the file to undo)</span>
+        <div class="term"><pre>lhp setup</pre></div>
+      </div></div>
+      <div class="step"><div>
+        Wrap your dev command in <code>package.json</code>
+        <div class="term"><pre>"dev": "lhp -- next dev"
+<span class="c"># servers that ignore PORT take a placeholder:</span>
+"dev": "lhp -- vite --port {port}"</pre></div>
+      </div></div>
+      <div class="step"><div>
+        Run <code>dev</code> in any worktree — it prints its stable URL and appears on the dashboard at <code>http://localhost/</code>
+        <div class="term"><pre>  ┌ localhost-proxy
+  │ worktree   feature-auth.tpg-code  (feature/auth)
+  │ proxied    <span class="g">http://feature-auth.tpg-code.test</span>
+  │ upstream   http://localhost:52341
+  └ running    next dev</pre></div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p><code>lhp</code> wraps your dev command. It detects the worktree and repo from git (all worktrees share the main repository's <code>.git</code> dir), allocates a free port, exports it as <code>PORT</code>, registers <span class="mono">name → port</span> with a proxy daemon that auto-starts on first use, and unregisters when your command exits. Crashed processes are pruned automatically.</p>
+    <p>The daemon routes by hostname on port 80 (no root needed on modern macOS), passes WebSockets through so HMR works, and answers DNS for <code>*.test</code> from a built-in loopback-only responder — that's what <code>lhp setup</code> points macOS at.</p>
+    <div class="grid">
+      <div class="card"><b>Zero config, zero deps</b><p>Names come from your git layout. One self-contained binary pair, no runtime dependencies.</p></div>
+      <div class="card"><b>Repo-scoped names</b><p><code>feature-auth.my-repo.test</code> and <code>feature-auth.other-repo.test</code> never collide. The dashboard groups by repo.</p></div>
+      <div class="card"><b>HMR just works</b><p>WebSocket upgrades are piped straight through to the dev server.</p></div>
+      <div class="card"><b>Self-healing routes</b><p>Routes persist across daemon restarts and vanish when their process dies.</p></div>
+      <div class="card"><b>Auth-flow safe</b><p>Auth.js/NextAuth env is injected so signin forms and OAuth callbacks stay on the proxy origin.</p></div>
+      <div class="card"><b>Friendly errors</b><p>Unknown or sleeping worktrees get a page listing everything that <em>is</em> running.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Configuration</h2>
+    <p>Defaults: proxy on port <code>80</code>, domain <code>.test</code>, scheme <code>worktree.repo</code>. Overrides live in <code>~/.lhp/config.json</code> via <code>lhp config</code>; after changing them run <code>lhp stop</code> and the daemon restarts with the new settings on your next dev run.</p>
+    <table>
+      <tr><th>Command</th><th>What it does</th></tr>
+      <tr><td><code>lhp -- &lt;cmd…&gt;</code></td><td>Wrap a dev command — register, run, unregister on exit</td></tr>
+      <tr><td><code>lhp list</code></td><td>Registered worktrees and their URLs</td></tr>
+      <tr><td><code>lhp status</code> / <code>lhp stop</code></td><td>Daemon status / stop the daemon</td></tr>
+      <tr><td><code>lhp config port 7777</code></td><td>Move the proxy off port 80 (URLs gain <code>:7777</code>)</td></tr>
+      <tr><td><code>lhp config domain localhost</code></td><td>Zero-setup mode — <code>*.localhost</code> resolves natively, no sudo step</td></tr>
+      <tr><td><code>lhp config scheme worktree</code></td><td>Flat names without the repo subdomain</td></tr>
+      <tr><td><code>lhp setup</code></td><td>One-time <code>/etc/resolver</code> entry any non-localhost domain needs</td></tr>
+    </table>
+    <p class="dim" style="margin-top:1rem">Domains that can't work are refused with an explanation: <code>.dev</code> and <code>.app</code> are HSTS-preloaded (browsers force HTTPS), <code>.local</code> belongs to Bonjour. <code>.test</code> is IETF-reserved; anything made up works too.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2>Telling your app its public URL</h2>
+    <p>Apps that build absolute URLs — auth flows, OAuth callbacks, share links — must build them on the proxy origin, or cookies and CSRF break the moment a form posts to <code>localhost:&lt;port&gt;</code>. Forwarded headers aren't enough in dev (the Next dev server rewrites them), so lhp injects environment variables instead:</p>
+    <table>
+      <tr><th>Layer</th><th>Variables</th></tr>
+      <tr><td>Always</td><td><code>PORT</code>, <code>LHP_URL</code>, <code>LHP_NAME</code></td></tr>
+      <tr><td>Auth.js defaults</td><td><code>AUTH_URL</code>, <code>NEXTAUTH_URL</code>, <code>AUTH_TRUST_HOST</code> — only when you haven't set them; inert otherwise</td></tr>
+      <tr><td>Project config</td><td>Anything your stack reads, via an <code>"lhp"</code> key in <code>package.json</code></td></tr>
+    </table>
+    <div class="term" style="margin-top:1.25rem"><pre><span class="c">// package.json — {url}, {port}, {name} placeholders</span>
+"lhp": {
+  "env": {
+    "VITE_PUBLIC_URL": "{url}",
+    "APP_HOST": "{url}",
+    "AUTH_URL": null  <span class="c">// opt out of a built-in default</span>
+  }
+}</pre></div>
+    <p class="dim">Your shell environment always wins — an explicitly exported variable is never overridden. For OAuth providers (Okta, Google, …), whitelist each worktree's callback URL, e.g. <code>http://feature-auth.my-repo.test/api/auth/callback/okta</code>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <a href="https://github.com/smarchetti/localhost-proxy">GitHub</a>
+    <a href="https://www.npmjs.com/package/@smarchetti/localhost-proxy">npm</a>
+    <span>MIT · Sean Marchetti</span>
+  </div>
+</footer>
+
+</body>
+</html>

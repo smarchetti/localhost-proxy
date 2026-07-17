@@ -15,7 +15,7 @@
     "type": "git",
     "url": "git+https://github.com/smarchetti/localhost-proxy.git"
   },
-  "homepage": "https://github.com/smarchetti/localhost-proxy#readme",
+  "homepage": "https://localhost-proxy.vercel.app",
   "bugs": {
     "url": "https://github.com/smarchetti/localhost-proxy/issues"
   },
