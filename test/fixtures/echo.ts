@@ -8,6 +8,10 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({
     echo: true, port, url: req.url, host: req.headers.host,
     proto: req.headers['x-forwarded-proto'],
+    name: process.env.LHP_NAME,
+    smoke: Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => k.startsWith('SMOKE_'))
+    ),
   }));
 });
 server.on('upgrade', (_req, socket) => {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 (2026-07-20)
+
+Monorepo support: per-app routes, branch-based names, hierarchical project config.
+
+- **Default URL shape changed** to `http://<branch>.<repo>.test` (`http://<branch>.<app>.<repo>.test` in monorepos). The scheme is now any dot-list of `branch`, `app`, `worktree`, `repo` tokens; `lhp config scheme worktree.repo` restores the old shape, and existing configs keep working
+- App detection: the nearest `package.json` above where `lhp` runs (below the worktree root) names an `app` label, so every package in a monorepo gets its own route — `turbo run dev` with each app wrapping itself in `lhp --` registers the whole stack, filters run one app
+- Route identity is the app directory, not the worktree root — two monorepo apps in one worktree no longer steal each other's names
+- Project config is hierarchical: `"lhp"` keys in `package.json` and `.lhp.json` files merge from the worktree root down to the app, closer wins per key; new `"app"` key overrides the URL's app label
+- Branch detection works in fresh repos with no commits (unborn HEAD)
+- **Fixed: registering a route no longer takes HTTPS down.** The daemon used to close the 443 listener and wait for every open connection (HMR websockets included) to drain before restarting with the re-minted cert — an outage of a minute or more, and concurrent registrations could be skipped from the cert entirely. New certs now apply to the live listener via `setSecureContext`: zero downtime, nothing disconnected
+
 ## 0.1.0 (2026-07-17)
 
 Initial release.

@@ -1,7 +1,7 @@
 {
   "name": "@smarchetti/localhost-proxy",
-  "version": "0.1.0",
-  "description": "Stable per-worktree dev URLs: run your dev server behind a local reverse proxy and reach each git worktree at http://<worktree>.<repo>.test",
+  "version": "0.2.0",
+  "description": "Stable per-worktree dev URLs: run your dev server behind a local reverse proxy and reach each git worktree at http://<branch>.<repo>.test",
   "type": "module",
   "license": "MIT",
   "bin": {

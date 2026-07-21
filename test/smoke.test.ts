@@ -137,6 +137,59 @@ try {
     return routes.every((r) => r.name !== 'smoke') ? true : null;
   }, 'route cleanup');
 
+  step('monorepo app gets a branch.app.repo name and merged project env');
+  // A git worktree holding a nested package: the app label comes from the
+  // nearest package.json, the branch from git, the repo from the checkout
+  // dir; root .lhp.json env merges under the app's package.json "lhp" env.
+  const mono = path.join(home, 'mono');
+  const appDir = path.join(mono, 'apps', 'web');
+  fs.mkdirSync(appDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(appDir, 'package.json'),
+    JSON.stringify({ name: '@acme/web', lhp: { env: { SMOKE_SHARED: 'app-{name}' } } })
+  );
+  fs.writeFileSync(
+    path.join(mono, '.lhp.json'),
+    JSON.stringify({ env: { SMOKE_ROOT: 'root', SMOKE_SHARED: 'root' } })
+  );
+  const gitInit = spawnSync('git', ['init', '-q', '-b', 'feat/checkout'], { cwd: mono, env });
+  assert.equal(gitInit.status, 0, `git init failed: ${gitInit.stderr}`);
+  const expected = 'feat-checkout.web.mono';
+  const lhpMono = spawn(
+    nodeBin,
+    [`${root}dist/lhp.js`, '--', nodeBin, `${root}test/fixtures/echo.ts`],
+    { cwd: appDir, env: { ...env, LHP_SCHEME: 'branch.app.repo' }, stdio: ['ignore', 'pipe', 'pipe'] }
+  );
+  lhpMono.stdout.on('data', () => {});
+  lhpMono.stderr.on('data', (d) => process.stderr.write(d));
+  try {
+    const monoBody = await until(async () => {
+      const r = await get('/', `${expected}.localhost:${TEST_PORT}`);
+      return r.status === 200 ? JSON.parse(r.text) : null;
+    }, `proxied response for ${expected}`);
+    assert.equal(monoBody.name, expected, 'route named branch.app.repo');
+    assert.equal(monoBody.smoke.SMOKE_ROOT, 'root', 'worktree-root .lhp.json env injected');
+    assert.equal(monoBody.smoke.SMOKE_SHARED, `app-${expected}`, 'app package.json env wins over root');
+
+    step('https cert gains the new host live (setSecureContext, no listener restart)');
+    // This host registered while the https listener was already up — the
+    // re-minted cert must apply to new handshakes without dropping the port.
+    const monoTls = spawnSync('curl', [
+      '-sS', '--cacert', path.join(home, '.lhp', 'ca', 'ca.pem'),
+      '--resolve', `${expected}.localhost:${TEST_HTTPS_PORT}:127.0.0.1`,
+      `https://${expected}.localhost:${TEST_HTTPS_PORT}/mono-tls`,
+    ], { encoding: 'utf8' });
+    assert.equal(monoTls.status, 0, `curl failed: ${monoTls.stderr}`);
+    assert.equal(JSON.parse(monoTls.stdout).url, '/mono-tls');
+  } finally {
+    lhpMono.kill('SIGTERM');
+  }
+  await until(async () => {
+    const { text } = await get('/api/routes');
+    const { routes } = JSON.parse(text) as { routes: Route[] };
+    return routes.every((r) => r.name !== expected) ? true : null;
+  }, 'monorepo route cleanup');
+
   console.log('\nsmoke test passed ✔');
 } catch (err) {
   failed = true;

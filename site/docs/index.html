@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docs — localhost-proxy</title>
+<meta name="description" content="localhost-proxy documentation: install, naming scheme, monorepos, env injection, HTTPS, OAuth callbacks, commands, configuration, troubleshooting.">
+<meta property="og:title" content="localhost-proxy docs">
+<meta property="og:description" content="Every git worktree, one stable URL — the full manual.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23131313'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='%23eeb64b' font-family='monospace'>~$</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&display=swap">
+<style>
+  :root {
+    --bg: oklch(0.13 0 0);
+    --terminal: oklch(0.085 0 0);
+    --surface: oklch(0.17 0 0);
+    --ink: oklch(0.93 0.005 75);
+    --muted: oklch(0.70 0.012 75);
+    --faint: oklch(0.52 0.008 75);
+    --line: oklch(0.27 0 0);
+    --amber: oklch(0.80 0.155 75);
+    --amber-dim: oklch(0.62 0.12 75);
+    --mint: oklch(0.80 0.12 170);
+    --sans: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 2rem; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 16.5px/1.65 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--amber); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .wrap { max-width: 68rem; margin: 0 auto; padding: 0 clamp(1.25rem, 4vw, 2.5rem); }
+
+  nav.top { display: flex; align-items: baseline; gap: .6rem 1.75rem; padding: 1.6rem 0 0; flex-wrap: wrap; }
+  .wordmark { font: 500 1.05rem var(--mono); color: var(--ink); letter-spacing: -.01em; white-space: nowrap; }
+  .wordmark:hover { text-decoration: none; color: var(--amber); }
+  .wordmark span { color: var(--amber); }
+  nav.top .links { margin-left: auto; display: flex; gap: .4rem 1.5rem; font-size: .92rem; flex-wrap: wrap; }
+  nav.top .links a { color: var(--muted); white-space: nowrap; }
+  nav.top .links a:hover { color: var(--ink); text-decoration: none; }
+
+  /* ── layout: sticky toc + article ────────────────── */
+  .docs { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: clamp(2rem, 5vw, 4rem); padding: clamp(2.5rem, 6vh, 4rem) 0 4rem; }
+  @media (max-width: 880px) { .docs { grid-template-columns: 1fr; } .toc { position: static; border-left: 0; padding-left: 0; display: flex; flex-wrap: wrap; gap: .2rem 1.2rem; border-bottom: 1px solid var(--line); padding-bottom: 1.25rem; } }
+  .toc { position: sticky; top: 2rem; align-self: start; font-size: .88rem; border-left: 1px solid var(--line); padding-left: 1.1rem; }
+  .toc a { display: block; color: var(--faint); padding: .18rem 0; white-space: nowrap; }
+  @media (max-width: 880px) { .toc a { display: inline-block; } }
+  .toc a:hover { color: var(--ink); text-decoration: none; }
+  .toc .toc-h { font: 500 .72rem var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .08em; margin: 1.1rem 0 .3rem; }
+  .toc .toc-h:first-child { margin-top: 0; }
+
+  article h1 { font-size: clamp(2rem, 4.5vw, 2.9rem); font-weight: 700; letter-spacing: -.025em; line-height: 1.08; margin: 0 0 .6rem; }
+  article .lede { color: var(--muted); font-size: 1.08rem; max-width: 56ch; margin: 0 0 1rem; }
+  article section { border-top: 1px solid var(--line); margin-top: 3rem; padding-top: 2.4rem; }
+  article h2 { font-size: 1.55rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; margin: 0 0 .9rem; }
+  article h3 { font-size: 1.02rem; font-weight: 700; margin: 2rem 0 .5rem; }
+  article p, article li { color: var(--muted); max-width: 66ch; }
+  article p strong, article li strong { color: var(--ink); font-weight: 500; }
+  article ul { padding-left: 1.2rem; }
+  article li { margin: .35rem 0; }
+  article code, .ref-row code { font-family: var(--mono); font-size: .88em; color: var(--ink); background: var(--surface); padding: .1em .35em; border-radius: 4px; }
+  article a code { color: var(--amber); }
+
+  pre.snippet {
+    background: var(--terminal); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1rem 1.2rem; font: 400 .84rem/1.7 var(--mono); overflow-x: auto;
+    color: var(--muted); margin: 1.1rem 0;
+  }
+  pre.snippet code { background: none; padding: 0; font-size: 1em; color: inherit; }
+  .t-cmd { color: var(--ink); }
+  .t-dim { color: var(--faint); }
+  .t-url { color: var(--amber); }
+  .t-ok  { color: var(--mint); }
+  @media (max-width: 640px) { pre.snippet { font-size: .76rem; } }
+
+  .ref { margin-top: 1.4rem; border-top: 1px solid var(--line); }
+  .ref-row {
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: .5rem 2rem; padding: .8rem 0; border-bottom: 1px solid var(--line);
+  }
+  @media (max-width: 640px) { .ref-row { grid-template-columns: 1fr; gap: .15rem; } }
+  .ref-row > code { background: none; padding: 0; font-size: .86rem; align-self: start; }
+  .ref-row span { font-size: .92rem; color: var(--muted); }
+
+  .note { font-size: .9rem; color: var(--faint); max-width: 66ch; border-left: 2px solid var(--amber-dim); padding-left: 1rem; margin: 1.2rem 0; }
+  .note code { color: var(--muted); }
+
+  h2 a.anchor, h3 a.anchor { color: var(--line); font-weight: 400; margin-left: .4rem; }
+  h2:hover a.anchor, h3:hover a.anchor { color: var(--amber-dim); text-decoration: none; }
+
+  footer { border-top: 1px solid var(--line); padding: 2.5rem 0 3.5rem; }
+  footer .wrap { display: flex; gap: 1.75rem; font-size: .9rem; color: var(--faint); flex-wrap: wrap; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="top">
+    <a class="wordmark" href="/"><span>~$</span> localhost-proxy</a>
+    <div class="links">
+      <a href="/">Home</a>
+      <a href="https://github.com/smarchetti/localhost-proxy">GitHub</a>
+      <a href="https://www.npmjs.com/package/@smarchetti/localhost-proxy">npm</a>
+    </div>
+  </nav>
+</div>
+
+<div class="wrap docs">
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-h">Start</div>
+    <a href="#install">Install</a>
+    <a href="#quick-start">Quick start</a>
+    <a href="#how-it-works">How it works</a>
+    <div class="toc-h">Guide</div>
+    <a href="#naming">URLs &amp; naming</a>
+    <a href="#monorepos">Monorepos</a>
+    <a href="#env">Env &amp; project config</a>
+    <a href="#https">HTTPS</a>
+    <a href="#oauth">OAuth callbacks</a>
+    <div class="toc-h">Reference</div>
+    <a href="#commands">Commands</a>
+    <a href="#config">Configuration</a>
+    <a href="#files">Files on disk</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </nav>
+
+  <article>
+    <h1>Documentation</h1>
+    <p class="lede">localhost-proxy (<code>lhp</code>) gives every git worktree — and every app in a monorepo — a stable dev URL like <span class="t-url" style="font-family:var(--mono);font-size:.92em">http://feature-auth.my-repo.test</span>, behind a tiny local reverse proxy you never think about.</p>
+
+    <section id="install">
+      <h2>Install<a class="anchor" href="#install">#</a></h2>
+      <pre class="snippet"><code><span class="t-dim">$ </span><span class="t-cmd">bun add -g @smarchetti/localhost-proxy</span>   <span class="t-dim"># or npm i -g / pnpm add -g</span>
+<span class="t-dim">$ </span><span class="t-cmd">bun add -d @smarchetti/localhost-proxy</span>   <span class="t-dim"># or per project, as a dev dependency</span></code></pre>
+      <p>The package ships two equivalent binaries, <code>lhp</code> and <code>localhost-proxy</code>. The runtime is Node ≥ 20 (the daemon deliberately runs under Node — Bun's <code>node:http</code> currently drops writes to upgraded WebSocket sockets, which would break HMR passthrough).</p>
+    </section>
+
+    <section id="quick-start">
+      <h2>Quick start<a class="anchor" href="#quick-start">#</a></h2>
+      <h3>1. Point macOS at the proxy — once</h3>
+      <pre class="snippet"><code><span class="t-dim">$ </span><span class="t-cmd">lhp setup</span></code></pre>
+      <p>One sudo step writes <code>/etc/resolver/test</code>, telling macOS to send <code>*.test</code> lookups to lhp's built-in loopback DNS responder. Delete the file to undo. Prefer zero setup? <code>lhp config domain localhost</code> uses <code>*.localhost</code> URLs, which resolve natively in every browser — no sudo, nothing to install.</p>
+      <h3>2. Wrap your dev command</h3>
+      <pre class="snippet"><code><span class="t-dim">// package.json</span>
+<span class="t-cmd">"dev": "lhp -- next dev"</span>
+
+<span class="t-dim">// vite ignores PORT — use the {port} placeholder</span>
+<span class="t-cmd">"dev": "lhp -- vite --port {port}"</span></code></pre>
+      <p>lhp allocates a free port, exports it as <code>PORT</code>, registers the route, and passes everything through. When the command exits — cleanly or not — the route is removed.</p>
+      <h3>3. Run dev anywhere</h3>
+      <pre class="snippet"><code><span class="t-dim">$ </span><span class="t-cmd">pnpm dev</span>
+
+<span class="t-dim">  ┌ localhost-proxy</span>
+<span class="t-dim">  │</span> worktree   feature-auth.my-repo  (feature/auth)
+<span class="t-dim">  │</span> proxied    <span class="t-url">http://feature-auth.my-repo.test</span>
+<span class="t-dim">  │</span> upstream   http://localhost:52341
+<span class="t-dim">  └</span> running    next dev</code></pre>
+      <p>The names come from git — branch, repo, and (in monorepos) the package — so there is nothing to configure and nothing collides. The dashboard at <a href="http://test">http://test</a> (or <code>http://localhost</code>) shows everything running, grouped by repo, with health and request counters.</p>
+    </section>
+
+    <section id="how-it-works">
+      <h2>How it works<a class="anchor" href="#how-it-works">#</a></h2>
+      <p><strong>lhp wraps; a tiny daemon routes.</strong> The first <code>lhp</code> run starts a reverse-proxy daemon on port 80 (unprivileged on modern macOS — that's why the URLs need no port suffix). It routes by hostname, forwards the original <code>Host</code> header plus <code>X-Forwarded-Host</code>/<code>X-Forwarded-Proto</code>, and pipes WebSocket upgrades straight through, so HMR just works.</p>
+      <p><strong>Routes clean themselves up.</strong> Stop the dev server and its route unregisters; crash it and the daemon prunes the dead registration on its next probe. Routes persist to disk, so a daemon restart reloads them. Visiting a name that isn't running gets a page listing everything that is; a registered name whose server refuses connections gets a "still starting?" page instead of a raw error.</p>
+      <p><strong>Loopback only.</strong> The listeners bind to loopback, the control API answers only to local hostnames, and POSTs must be <code>application/json</code> — which cross-origin forms can't send, closing the CSRF door. Your dev servers stay yours.</p>
+      <p><strong>Name collisions get suffixes.</strong> If two different directories request the same name, the second becomes <code>name-2</code>. The banner and <code>lhp list</code> always show the real URL. Re-running from the same directory reuses its name.</p>
+    </section>
+
+    <section id="naming">
+      <h2>URLs &amp; naming<a class="anchor" href="#naming">#</a></h2>
+      <p>A route name is composed from a <strong>scheme</strong> — a dot-list of label tokens, joined left-to-right into the hostname. The default is <code>branch.app.repo</code>:</p>
+      <div class="ref">
+        <div class="ref-row"><code>branch</code><span>The checked-out branch, sanitized to DNS labels (<code>feature/auth</code> → <code>feature-auth</code>). A detached HEAD uses the short commit SHA.</span></div>
+        <div class="ref-row"><code>app</code><span>Monorepos only: the nearest <code>package.json</code> walking up from where <code>lhp</code> runs, scope stripped (<code>@acme/web</code> → <code>web</code>). A <code>package.json</code> at the worktree root doesn't count, so single-package repos skip this label.</span></div>
+        <div class="ref-row"><code>worktree</code><span>The worktree directory's basename.</span></div>
+        <div class="ref-row"><code>repo</code><span>The main repository's directory name (shared by all its worktrees via the common <code>.git</code> dir), falling back to the <code>origin</code> remote's name.</span></div>
+      </div>
+      <p style="margin-top:1.2rem">Tokens that resolve to nothing are skipped, and adjacent duplicate labels collapse (under <code>worktree.repo</code>, a checkout at <code>~/dev/my-repo</code> is <code>my-repo.test</code>, not <code>my-repo.my-repo.test</code>). What you get by default:</p>
+      <div class="ref">
+        <div class="ref-row"><code>main.my-repo.test</code><span>Single-package repo, main checkout</span></div>
+        <div class="ref-row"><code>feature-auth.my-repo.test</code><span>Worktree on <code>feature/auth</code></span></div>
+        <div class="ref-row"><code>main.web.my-repo.test</code><span>The <code>web</code> package of a monorepo</span></div>
+        <div class="ref-row"><code>feature-auth.web.my-repo.test</code><span>Same package, in a worktree</span></div>
+      </div>
+      <p style="margin-top:1.2rem">Change the shape with <code>lhp config scheme &lt;tokens&gt;</code>:</p>
+      <pre class="snippet"><code><span class="t-dim">$ </span><span class="t-cmd">lhp config scheme worktree.repo</span>   <span class="t-dim"># the pre-0.2 default: auth.my-repo.test</span>
+<span class="t-dim">$ </span><span class="t-cmd">lhp config scheme worktree</span>        <span class="t-dim"># flat: auth.test</span></code></pre>
+      <p>Repo scoping means worktrees of different repos never collide, and the dashboard groups by repo. Per-run, <code>--name &lt;name&gt;</code> overrides the whole composed name.</p>
+    </section>
+
+    <section id="monorepos">
+      <h2>Monorepos<a class="anchor" href="#monorepos">#</a></h2>
+      <p>Each app wraps its own dev script, and your task runner — turbo, nx, <code>pnpm -r</code> — stays the orchestrator. Run the whole stack or one app with the filters you already use; lhp needs no flags because runners set each package's working directory, which is where the <code>app</code> label comes from.</p>
+      <pre class="snippet"><code><span class="t-dim">// apps/web/package.json — falls back cleanly where lhp isn't installed</span>
+<span class="t-cmd">"dev": "if command -v lhp >/dev/null 2>&amp;1; then exec lhp -- next dev; else exec next dev --port 3000; fi"</span></code></pre>
+      <pre class="snippet"><code><span class="t-dim">$ </span><span class="t-cmd">turbo run dev</span>                      <span class="t-dim"># whole stack:</span>
+<span class="t-url">http://main.web.my-repo.test</span>
+<span class="t-url">http://main.api.my-repo.test</span>
+<span class="t-url">http://main.docs.my-repo.test</span>
+
+<span class="t-dim">$ </span><span class="t-cmd">turbo run dev --filter=@acme/web</span>   <span class="t-dim"># just one app</span></code></pre>
+      <ul>
+        <li><strong>Every app gets its own route</strong> — the <code>app</code> label keeps sibling packages from colliding, each on an auto-allocated port. Drop hardcoded <code>--port</code> flags from the lhp branch of the script (keep them in the fallback).</li>
+        <li><strong>Apps can reference each other by URL.</strong> Names are stable, so <code>http://main.api.my-repo.test</code> beats <code>localhost:&lt;whatever&gt;</code> — cross-app links survive worktree switches and restarts.</li>
+        <li><strong>The label is overridable</strong> — set <code>"app"</code> in <a href="#env">project config</a> if a package's name isn't what you want in the URL.</li>
+      </ul>
+    </section>
+
+    <section id="env">
+      <h2>Env &amp; project config<a class="anchor" href="#env">#</a></h2>
+      <p>Apps that build absolute URLs (auth flows, OAuth callbacks, share links) must build them on the proxy origin, not <code>localhost:&lt;port&gt;</code> — otherwise cookies and CSRF break the moment a form posts upstream. Forwarded headers aren't enough in dev (the Next dev server rewrites them), so lhp injects environment variables:</p>
+      <ul>
+        <li><strong>Always:</strong> <code>PORT</code>, <code>LHP_URL</code>, <code>LHP_NAME</code>.</li>
+        <li><strong>Built-in defaults</strong> (only when not already set in your shell): <code>AUTH_URL</code>, <code>NEXTAUTH_URL</code>, and <code>AUTH_TRUST_HOST=true</code> for Auth.js/NextAuth — the most common case, harmless for apps that don't use them.</li>
+        <li><strong>Project config</strong> for everything else — an <code>"lhp"</code> key in a <code>package.json</code>, or a <code>.lhp.json</code> next to it:</li>
+      </ul>
+      <pre class="snippet"><code><span class="t-dim">// package.json</span>
+{
+  "lhp": {
+    "app": "web",             <span class="t-dim">// optional: override the app label in the URL</span>
+    "env": {
+      "VITE_PUBLIC_URL": "{url}",
+      "APP_HOST": "{url}",
+      "AUTH_URL": null        <span class="t-dim">// opt out of a built-in default</span>
+    }
+  }
+}</code></pre>
+      <p><strong>Config is hierarchical.</strong> Every <code>package.json</code> <code>"lhp"</code> key and <code>.lhp.json</code> from the worktree root down to the directory lhp runs in is merged, closer-to-the-app winning per key (within one directory, <code>.lhp.json</code> beats <code>package.json</code>). In a monorepo: stack-wide env in a root <code>.lhp.json</code>, per-app overrides in each app's <code>package.json</code>.</p>
+      <p><strong>Precedence:</strong> shell env &gt; project config &gt; built-in defaults — an explicitly exported variable is never overridden. Shell env also beats <code>.env</code> files in Next, so injected values win over a stale <code>NEXTAUTH_URL=http://localhost:3000</code> in <code>.env.local</code>. The <code>{url}</code>, <code>{port}</code>, and <code>{name}</code> placeholders work in env values and in the wrapped command itself.</p>
+    </section>
+
+    <section id="https">
+      <h2>HTTPS<a class="anchor" href="#https">#</a></h2>
+      <pre class="snippet"><code><span class="t-dim">$ </span><span class="t-cmd">lhp config https on</span>
+<span class="t-dim">$ </span><span class="t-cmd">lhp setup</span>            <span class="t-dim"># sudo: adds the local CA to the system trust store</span></code></pre>
+      <p>Worktree URLs become <code>https://…</code> (port 443, no suffix; http on 80 keeps working alongside), and injected URLs (<code>LHP_URL</code>, <code>AUTH_URL</code>, …) switch to https with <code>X-Forwarded-Proto: https</code> set.</p>
+      <p>Public CAs can't issue for <code>.test</code>, so the daemon runs its own CA in <code>~/.lhp/ca</code> — <strong>name-constrained to your configured domain and <code>.localhost</code></strong>. Even if the key leaked, it cannot sign for real websites: such a cert fails validation with a permitted-subtree violation. The daemon maintains one multi-SAN leaf certificate covering every registered host plus a <code>*.&lt;repo&gt;.&lt;domain&gt;</code> wildcard per repo, re-minting automatically as routes appear — new worktrees and apps need no cert step.</p>
+      <p class="note">Firefox keeps its own trust store: set <code>security.enterprise_roots.enabled</code> to <code>true</code> in <code>about:config</code> so it honors the system keychain.</p>
+    </section>
+
+    <section id="oauth">
+      <h2>OAuth callbacks<a class="anchor" href="#oauth">#</a></h2>
+      <p>OAuth providers must whitelist each redirect URI. With stable per-worktree URLs you have two options:</p>
+      <ul>
+        <li><strong>Exact URIs</strong> — register each worktree's callback as you create it, e.g. <code>http://feature-auth.my-repo.test/api/auth/callback/okta</code>. Works everywhere, http or https.</li>
+        <li><strong>A wildcard</strong> — turn on <a href="#https">HTTPS</a> and register e.g. <code>https://*.my-repo.test/api/auth/callback/okta</code> once. Okta wildcard-matches https URIs only.</li>
+      </ul>
+      <p><strong>Know your provider's wildcard rules.</strong> Okta allows one <code>*</code> per URI, at the third domain level or deeper, matching a <em>single</em> label. That means <code>https://*.my-repo.test</code> covers <code>feature-auth.my-repo.test</code> but <em>not</em> a monorepo's <code>feature-auth.web.my-repo.test</code> (two labels under the repo). For monorepos, register a wildcard per app (<code>https://*.web.my-repo.test/…</code>) where the provider accepts the depth, fall back to exact URIs — or pick a flatter <a href="#naming">scheme</a> for that trade-off.</p>
+    </section>
+
+    <section id="commands">
+      <h2>Commands<a class="anchor" href="#commands">#</a></h2>
+      <div class="ref">
+        <div class="ref-row"><code>lhp [--] &lt;cmd…&gt;</code><span>Wrap a dev command: allocate a port, register, run, unregister on exit. The <code>--</code> is optional; <code>lhp run -- &lt;cmd…&gt;</code> is the unambiguous form for commands whose binary shares a subcommand name.</span></div>
+        <div class="ref-row"><code>lhp list</code><span>Registered worktrees and their URLs (<code>ls</code> works too)</span></div>
+        <div class="ref-row"><code>lhp status</code><span>Daemon pid, port, and route count</span></div>
+        <div class="ref-row"><code>lhp stop</code><span>Stop the daemon (it restarts on the next wrapped run)</span></div>
+        <div class="ref-row"><code>lhp config</code><span>Show current + effective configuration</span></div>
+        <div class="ref-row"><code>lhp config &lt;key&gt; &lt;value&gt;</code><span>Set <code>port</code>, <code>domain</code>, <code>scheme</code>, or <code>https</code> — see <a href="#config">Configuration</a></span></div>
+        <div class="ref-row"><code>lhp setup</code><span>The sudo step: <code>/etc/resolver</code> entry for a non-localhost domain, plus CA trust when https is on. Run it again after changing <code>domain</code> or enabling <code>https</code>.</span></div>
+        <div class="ref-row"><code>lhp help</code><span>Usage summary</span></div>
+      </div>
+      <h3>Flags (before the command)</h3>
+      <div class="ref">
+        <div class="ref-row"><code>--name &lt;name&gt;</code><span>Override the composed route name for this run</span></div>
+        <div class="ref-row"><code>--port &lt;port&gt;</code><span>Pin the upstream port instead of auto-allocating (an existing <code>PORT</code> env var is also respected)</span></div>
+      </div>
+    </section>
+
+    <section id="config">
+      <h2>Configuration<a class="anchor" href="#config">#</a></h2>
+      <p>Settings live in <code>~/.lhp/config.json</code>, managed by <code>lhp config</code>. Environment variables override the file; the file overrides defaults. <strong>After changing anything, run <code>lhp stop</code></strong> — the daemon restarts with the new settings on your next dev run.</p>
+      <div class="ref">
+        <div class="ref-row"><code>port · LHP_PROXY_PORT</code><span>Proxy listen port. Default <code>80</code> — port-free URLs, no root needed on macOS 10.14+. Anything else shows up as a <code>:port</code> suffix.</span></div>
+        <div class="ref-row"><code>domain · LHP_DOMAIN</code><span>URL domain. Default <code>test</code> (IETF-reserved, needs one <code>lhp setup</code>); <code>localhost</code> is zero-setup; anything made up works. <code>.dev</code>, <code>.app</code> (HSTS-preloaded — browsers force https) and <code>.local</code> (Bonjour) are refused with the reason.</span></div>
+        <div class="ref-row"><code>scheme · LHP_SCHEME</code><span>Name shape: a dot-list of <code>branch</code>, <code>app</code>, <code>worktree</code>, <code>repo</code>. Default <code>branch.app.repo</code>.</span></div>
+        <div class="ref-row"><code>https · LHP_HTTPS</code><span><code>on</code>/<code>off</code> (default off). See <a href="#https">HTTPS</a>.</span></div>
+        <div class="ref-row"><code>LHP_HTTPS_PORT</code><span>TLS listen port, default <code>443</code></span></div>
+        <div class="ref-row"><code>LHP_DNS_PORT</code><span>Loopback DNS responder port, default <code>5354</code> (UDP; referenced by the <code>/etc/resolver</code> entry)</span></div>
+      </div>
+      <p style="margin-top:1.2rem">For any non-localhost domain the daemon runs a tiny DNS responder answering <code>*.&lt;domain&gt; → 127.0.0.1</code>, and <code>lhp setup</code> writes <code>/etc/resolver/&lt;domain&gt;</code> pointing macOS at it. That resolver file is the single sudo-requiring piece; delete it to undo. <code>*.localhost</code> URLs always work as a fallback alongside a custom domain.</p>
+    </section>
+
+    <section id="files">
+      <h2>Files on disk<a class="anchor" href="#files">#</a></h2>
+      <div class="ref">
+        <div class="ref-row"><code>~/.lhp/config.json</code><span>Settings, managed by <code>lhp config</code></span></div>
+        <div class="ref-row"><code>~/.lhp/routes.json</code><span>Registered routes, persisted so a daemon restart keeps them</span></div>
+        <div class="ref-row"><code>~/.lhp/daemon.log</code><span>Daemon log — registrations, prunes, errors</span></div>
+        <div class="ref-row"><code>~/.lhp/ca · ~/.lhp/certs</code><span>The name-constrained local CA and the auto-minted leaf certificate (https mode)</span></div>
+        <div class="ref-row"><code>/etc/resolver/&lt;domain&gt;</code><span>The one sudo-written file, from <code>lhp setup</code>. Delete to undo.</span></div>
+      </div>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting<a class="anchor" href="#troubleshooting">#</a></h2>
+      <h3>URLs don't resolve</h3>
+      <p>For a non-localhost domain, <code>lhp setup</code> must have written <code>/etc/resolver/&lt;domain&gt;</code>, and the daemon must be running (it hosts the DNS responder). Check <code>lhp status</code>, then <code>scutil --dns | grep -A2 &lt;domain&gt;</code>. The <code>*.localhost</code> form of any URL always works meanwhile.</p>
+      <h3>I changed config and nothing happened</h3>
+      <p>The daemon keeps its startup settings. <code>lhp stop</code> — it restarts with the new ones on the next wrapped run. A <code>domain</code> change or enabling <code>https</code> also needs <code>lhp setup</code> again; a <code>scheme</code> change doesn't.</p>
+      <h3>The proxy won't start on port 80</h3>
+      <p>Something else owns it — often another web server, or a second lhp daemon (check <code>~/.lhp/daemon.log</code>). Either stop the other process or move lhp: <code>lhp config port 7777</code> (URLs gain <code>:7777</code>).</p>
+      <h3>502 / "still starting" page</h3>
+      <p>The route is registered but the dev server isn't accepting connections yet — normal during startup. If it persists, the wrapped server probably ignored <code>PORT</code>: pass the port explicitly with the <code>{port}</code> placeholder (e.g. <code>lhp -- vite --port {port}</code>) and remove hardcoded <code>--port</code> flags.</p>
+      <h3>Auth redirects to localhost:&lt;port&gt;</h3>
+      <p>The app is building absolute URLs from its own listener instead of the proxy origin. Auth.js/NextAuth is covered automatically; for anything else, map the env var your framework reads in <a href="#env">project config</a> — and check for a stale hardcoded URL in <code>.env.local</code> being read by something other than Next.</p>
+      <h3>Browser distrusts the https cert</h3>
+      <p>Run <code>lhp setup</code> after enabling https (it adds the CA to the system keychain). Firefox additionally needs <code>security.enterprise_roots.enabled</code> — it ignores the system trust store by default.</p>
+      <h3>Two routes with a -2 suffix</h3>
+      <p>Two different directories asked for the same name — usually two repos whose worktree dirs share a basename under a scheme without <code>repo</code>, or two checkouts on the same branch. Include more tokens in the <a href="#naming">scheme</a>, or pin one side with <code>--name</code>.</p>
+    </section>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap">
+    <a href="/">Home</a>
+    <a href="https://github.com/smarchetti/localhost-proxy">GitHub</a>
+    <a href="https://www.npmjs.com/package/@smarchetti/localhost-proxy">npm</a>
+    <a href="https://github.com/smarchetti/localhost-proxy/blob/main/CHANGELOG.md">Changelog</a>
+    <span style="margin-left:auto">MIT · Sean Marchetti</span>
+  </div>
+</footer>
+
+</body>
+</html>

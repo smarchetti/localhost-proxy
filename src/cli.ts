@@ -5,8 +5,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   PROXY_PORT, DOMAIN, DNS_PORT, SCHEME, HTTPS_ENABLED, HTTPS_PORT,
-  STATE_DIR, LOG_FILE, CONFIG_FILE,
-  sanitizeName, api, proxyUrl, readConfig, writeConfig, type Route,
+  STATE_DIR, LOG_FILE, CONFIG_FILE, DEFAULT_SCHEME, parseScheme,
+  sanitizeName, api, proxyUrl, readConfig, writeConfig,
+  type Route, type SchemeToken,
 } from './shared';
 import { ensureCa, CA_CERT } from './certs';
 
@@ -27,6 +28,7 @@ interface RegisterResponse {
 }
 
 interface ProjectConfig {
+  app?: string;
   env?: Record<string, string | null>;
 }
 
@@ -52,14 +54,16 @@ Usage:
   lhp config               Show configuration (~/.lhp/config.json)
   lhp config port <n>      Set the proxy's listen port (default 80: port-free URLs)
   lhp config domain <tld>  Set the URL domain (default "test"; "localhost" needs no setup)
-  lhp config scheme <s>    "worktree.repo" (default) or "worktree" (no repo subdomain)
+  lhp config scheme <s>    URL labels: a dot-list of branch, app, worktree, repo
+                           (default "${DEFAULT_SCHEME}"; app is the nearest package
+                           in a monorepo, skipped elsewhere)
   lhp config https on|off  Serve worktree URLs over https (local CA; default off)
   lhp setup                One-time sudo step: /etc/resolver entry for the domain,
                            plus trusting the local CA when https is on
   lhp help                 Show this help
 
 The proxy listens on http://localhost:${PROXY_PORT} (dashboard) and routes
-${proxyUrl('<worktree>')} to each worktree's dev server.
+${proxyUrl(schemeExample())} to each worktree's dev server.
 Env overrides: LHP_PROXY_PORT, LHP_DOMAIN, LHP_DNS_PORT, LHP_SCHEME.
 After changing config, run \`lhp stop\` — the daemon restarts with the new
 settings on the next dev run.`;
@@ -87,42 +91,94 @@ function detectRepo(cwd: string): string | null {
 
 function detectWorktree(cwd: string) {
   const toplevel = git(['rev-parse', '--show-toplevel'], cwd);
-  const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
+  // rev-parse can't resolve an unborn HEAD (fresh repo, no commits yet);
+  // symbolic-ref still names the branch there.
+  const branch =
+    git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd) ?? git(['symbolic-ref', '--short', 'HEAD'], cwd);
   const repoName = detectRepo(cwd);
-  const repo = repoName ? sanitizeName(repoName) : null;
-  let name = sanitizeName(path.basename(toplevel || cwd));
-  if (SCHEME === 'worktree.repo' && repo) {
-    // The main checkout's dir often IS the repo name — avoid repo.repo.
-    name = name === repo ? repo : `${name}.${repo}`;
-  }
   return {
     dir: toplevel || cwd,
-    name,
-    repo,
+    worktree: sanitizeName(path.basename(toplevel || cwd)),
+    repo: repoName ? sanitizeName(repoName) : null,
     branch: branch === 'HEAD' ? git(['rev-parse', '--short', 'HEAD'], cwd) : branch,
   };
 }
 
-// Project-level config: an "lhp" key in the nearest package.json (the app
-// being run — matters in monorepos) or a .lhp.json at the worktree root.
-// Currently supports { "env": { "KEY": "{url}" } } with {url}/{port}/{name}
-// placeholders, so any framework can be told its public URL without lhp
-// knowing about it.
+// The app label distinguishes packages inside a monorepo: the nearest
+// package.json walking up from cwd (which is the package dir under runners
+// like turbo). A package.json AT the worktree root means a single-package
+// repo — no app label, so those keep their shorter names.
+function detectApp(cwd: string, worktreeDir: string): { dir: string; name: string } | null {
+  const stop = path.resolve(worktreeDir);
+  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+    const pkgFile = path.join(dir, 'package.json');
+    if (fs.existsSync(pkgFile)) {
+      if (dir === stop) return null;
+      let label = path.basename(dir);
+      try {
+        const pkgName = JSON.parse(fs.readFileSync(pkgFile, 'utf8')).name;
+        if (typeof pkgName === 'string' && pkgName) label = pkgName.replace(/^@[^/]+\//, '');
+      } catch {
+        // unparsable — the directory name is label enough
+      }
+      return { dir, name: sanitizeName(label) };
+    }
+    if (dir === stop || path.dirname(dir) === dir) return null;
+  }
+}
+
+function schemeTokens(): SchemeToken[] {
+  return parseScheme(SCHEME) ?? parseScheme(DEFAULT_SCHEME)!;
+}
+
+function schemeExample(): string {
+  return schemeTokens().map((t) => `<${t}>`).join('.');
+}
+
+// Compose the route name from the scheme's tokens. Tokens without a value
+// (no app outside monorepos, no branch outside git) are skipped, and
+// adjacent duplicates collapse: the main checkout's dir often IS the repo
+// name, so worktree.repo yields my-repo, not my-repo.my-repo.
+function composeName(parts: Record<SchemeToken, string | null>): string {
+  const labels: string[] = [];
+  for (const token of schemeTokens()) {
+    const value = parts[token];
+    if (value && labels[labels.length - 1] !== value) labels.push(value);
+  }
+  return labels.join('.') || parts.worktree || 'worktree';
+}
+
+// Project-level config: "lhp" keys in package.json files and .lhp.json files,
+// merged hierarchically from the worktree root down to cwd — closer wins per
+// key, and within one directory .lhp.json beats the package.json key.
+// Supports { "app": "web" } (override the app label) and { "env": { "KEY":
+// "{url}" } } with {url}/{port}/{name} placeholders, so any framework can be
+// told its public URL without lhp knowing about it.
 function readProjectConfig(cwd: string, worktreeDir: string): ProjectConfig {
-  const sources: Array<() => ProjectConfig | undefined> = [
-    () => JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8')).lhp,
-    () => JSON.parse(fs.readFileSync(path.join(worktreeDir, '.lhp.json'), 'utf8')),
-    () => JSON.parse(fs.readFileSync(path.join(worktreeDir, 'package.json'), 'utf8')).lhp,
-  ];
-  for (const read of sources) {
-    try {
-      const config = read();
-      if (config) return config;
-    } catch {
-      // missing or unparsable — try the next location
+  const stop = path.resolve(worktreeDir);
+  const chain: string[] = []; // worktree root first, cwd last
+  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+    chain.unshift(dir);
+    if (dir === stop || path.dirname(dir) === dir) break;
+  }
+  const merged: ProjectConfig = {};
+  for (const dir of chain) {
+    const layers: Array<() => ProjectConfig | undefined> = [
+      () => JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).lhp,
+      () => JSON.parse(fs.readFileSync(path.join(dir, '.lhp.json'), 'utf8')),
+    ];
+    for (const read of layers) {
+      try {
+        const layer = read();
+        if (!layer) continue;
+        if (layer.app !== undefined) merged.app = layer.app;
+        if (layer.env) merged.env = { ...merged.env, ...layer.env };
+      } catch {
+        // missing or unparsable — skip this layer
+      }
     }
   }
-  return {};
+  return merged;
 }
 
 function fillTemplate(value: string, vars: TemplateVars): string {
@@ -186,15 +242,28 @@ async function cmdRun(flags: Flags, command: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const wt = detectWorktree(process.cwd());
-  const name = flags.name ? sanitizeName(flags.name) : wt.name;
+  const cwd = process.cwd();
+  const wt = detectWorktree(cwd);
+  const app = detectApp(cwd, wt.dir);
+  const project = readProjectConfig(cwd, wt.dir);
+  const appLabel = project.app ? sanitizeName(project.app) : app?.name ?? null;
+  const name = flags.name
+    ? sanitizeName(flags.name)
+    : composeName({
+        branch: wt.branch ? sanitizeName(wt.branch) : null,
+        app: appLabel,
+        worktree: wt.worktree,
+        repo: wt.repo,
+      });
   const port = flags.port ? Number(flags.port) : Number(process.env.PORT) || (await freePort());
 
   await ensureDaemon();
   const reg = await api<RegisterResponse>('/api/register', {
     body: {
       name, port, pid: process.pid,
-      dir: wt.dir, repo: wt.repo, branch: wt.branch, cmd: command.join(' '),
+      // The app dir (not the worktree root) is the route's identity — two
+      // monorepo apps in one worktree must not steal each other's names.
+      dir: app?.dir ?? wt.dir, repo: wt.repo, branch: wt.branch, cmd: command.join(' '),
     },
   });
 
@@ -223,7 +292,6 @@ async function cmdRun(flags: Flags, command: string[]): Promise<void> {
     NEXTAUTH_URL: url,
     AUTH_TRUST_HOST: 'true',
   };
-  const project = readProjectConfig(process.cwd(), wt.dir);
   for (const [key, value] of Object.entries(project.env ?? {})) {
     if (value === null) delete injected[key]; // opt out of a built-in default
     else injected[key] = fillTemplate(value, vars);
@@ -323,8 +391,7 @@ async function cmdConfig(key?: string, value?: string): Promise<void> {
       `\neffective:  port=${PROXY_PORT}  domain=${DOMAIN}  scheme=${SCHEME}  dnsPort=${DNS_PORT}` +
       `  https=${HTTPS_ENABLED ? `on (:${HTTPS_PORT})` : 'off'}`
     );
-    const example = SCHEME === 'worktree.repo' ? '<worktree>.<repo>' : '<worktree>';
-    console.log(`worktree URLs look like: ${proxyUrl(example)}`);
+    console.log(`worktree URLs look like: ${proxyUrl(schemeExample())}`);
     return;
   }
   const config = readConfig();
@@ -348,8 +415,11 @@ async function cmdConfig(key?: string, value?: string): Promise<void> {
     }
     config.domain = domain;
   } else if (key === 'scheme') {
-    if (value !== 'worktree' && value !== 'worktree.repo') {
-      console.error(`Invalid scheme: "${value}" (valid: worktree, worktree.repo)`);
+    if (!value || !parseScheme(value)) {
+      console.error(
+        `Invalid scheme: "${value}" — use a dot-list of branch, app, worktree, repo` +
+        ` (e.g. "${DEFAULT_SCHEME}" or "worktree.repo")`
+      );
       process.exit(1);
     }
     config.scheme = value;
@@ -420,7 +490,7 @@ async function cmdSetup(): Promise<void> {
     console.error(`\nsetup failed — you can do it manually:\n  sudo sh -c "${cmd}"`);
     process.exit(1);
   }
-  console.log(`\nDone. Worktree URLs: ${proxyUrl('<worktree>')}`);
+  console.log(`\nDone. Worktree URLs: ${proxyUrl(schemeExample())}`);
   if (HTTPS_ENABLED) {
     console.log('Firefox keeps its own trust store: set security.enterprise_roots.enabled');
     console.log('to true in about:config so it uses the system keychain.');

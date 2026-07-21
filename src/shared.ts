@@ -6,9 +6,26 @@ export interface LhpConfig {
   port?: number;
   domain?: string;
   dnsPort?: number;
-  scheme?: 'worktree' | 'worktree.repo';
+  scheme?: string;
   https?: boolean;
   httpsPort?: number;
+}
+
+// A scheme is a dot-list of label tokens composed left-to-right into the
+// hostname. Tokens that resolve to nothing (no app in a single-package repo,
+// no branch outside git) are simply skipped.
+export const SCHEME_TOKENS = ['branch', 'app', 'worktree', 'repo'] as const;
+export type SchemeToken = (typeof SCHEME_TOKENS)[number];
+export const DEFAULT_SCHEME = 'branch.app.repo';
+
+export function parseScheme(raw: string): SchemeToken[] | null {
+  const tokens = raw.split('.');
+  const seen = new Set<string>();
+  for (const t of tokens) {
+    if (!(SCHEME_TOKENS as readonly string[]).includes(t) || seen.has(t)) return null;
+    seen.add(t);
+  }
+  return tokens as SchemeToken[];
 }
 
 export interface Route {
@@ -56,8 +73,9 @@ export const DOMAIN = (process.env.LHP_DOMAIN || config.domain || 'test')
   .toLowerCase()
   .replace(/^\./, '');
 export const DNS_PORT = Number(process.env.LHP_DNS_PORT || config.dnsPort || 5354);
+// 'branch.app.repo' -> feature-auth.web.my-repo.test (app only in monorepos);
 // 'worktree.repo' -> feature-auth.my-repo.test; 'worktree' -> feature-auth.test
-export const SCHEME = process.env.LHP_SCHEME || config.scheme || 'worktree.repo';
+export const SCHEME = process.env.LHP_SCHEME || config.scheme || DEFAULT_SCHEME;
 
 const envHttps = process.env.LHP_HTTPS;
 export const HTTPS_ENABLED = envHttps != null ? envHttps === '1' || envHttps === 'true' : config.https === true;

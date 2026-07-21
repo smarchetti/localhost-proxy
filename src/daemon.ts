@@ -279,7 +279,10 @@ server.listen(PROXY_PORT, () => {
 // ── https ─────────────────────────────────────────────────────────────────
 // One multi-SAN cert covers every registered host (TLS wildcards can't span
 // labels, clients reject TLD-depth wildcards, and Bun lacks SNICallback).
-// When a new host appears the leaf is re-minted and the listener swapped.
+// When a new host appears the leaf is re-minted and applied to the live
+// listener via setSecureContext — never by restarting the listener, which
+// would refuse connections until every open socket (HMR websockets included)
+// drained.
 
 function computeSans(): string[] {
   const sans = new Set(['DNS:localhost', 'IP:127.0.0.1', `DNS:${DOMAIN}`]);
@@ -292,13 +295,13 @@ function computeSans(): string[] {
 }
 
 let httpsServer: https.Server | null = null;
-let swapping = false;
+
+function leafContext(): { key: Buffer; cert: Buffer } {
+  return { key: fs.readFileSync(LEAF_KEY), cert: fs.readFileSync(LEAF_CERT) };
+}
 
 function startHttpsServer(): void {
-  const srv = https.createServer(
-    { key: fs.readFileSync(LEAF_KEY), cert: fs.readFileSync(LEAF_CERT) },
-    requestHandler
-  );
+  const srv = https.createServer(leafContext(), requestHandler);
   guard(srv);
   srv.on('error', (err: NodeJS.ErrnoException) => {
     log(`https listener error: ${err.code || err.message}`);
@@ -311,21 +314,17 @@ function startHttpsServer(): void {
 }
 
 function refreshHttps(): void {
-  if (!HTTPS_ENABLED || swapping) return;
+  if (!HTTPS_ENABLED) return;
   try {
-    const minted = ensureLeaf(computeSans());
-    if (httpsServer && !minted) return;
-    if (httpsServer) {
-      swapping = true;
-      const old = httpsServer;
-      httpsServer = null;
-      (old as { closeAllConnections?: () => void }).closeAllConnections?.();
-      old.close(() => {
-        swapping = false;
-        startHttpsServer();
-      });
-    } else {
+    const sans = computeSans();
+    const minted = ensureLeaf(sans);
+    if (!httpsServer) {
       startHttpsServer();
+    } else if (minted) {
+      // New handshakes get the new cert; established connections keep the
+      // one they already validated. Zero downtime, nothing disconnected.
+      httpsServer.setSecureContext(leafContext());
+      log(`https cert refreshed (${sans.length} SANs)`);
     }
   } catch (err) {
     log(`https cert refresh failed: ${err instanceof Error ? err.message : err}`);

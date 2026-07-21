@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>localhost-proxy — every worktree, one URL</title>
-<meta name="description" content="Run your dev server behind a tiny local reverse proxy and reach each git worktree at http://<worktree>.<repo>.test — no ports, no collisions, one dashboard.">
+<meta name="description" content="Run your dev server behind a tiny local reverse proxy and reach each git worktree at http://<branch>.<repo>.test — no ports, no collisions, one dashboard.">
 <meta property="og:title" content="localhost-proxy">
 <meta property="og:description" content="Every git worktree, one stable URL. Stop juggling localhost:3000 vs :3001.">
 <meta property="og:type" content="website">
@@ -185,7 +185,7 @@
     <a class="wordmark" href="/"><span>~$</span> localhost-proxy</a>
     <div class="links">
       <a href="#start">Quick start</a>
-      <a href="#config">Reference</a>
+      <a href="/docs/">Docs</a>
       <a href="https://github.com/smarchetti/localhost-proxy">GitHub</a>
       <a href="https://www.npmjs.com/package/@smarchetti/localhost-proxy">npm</a>
     </div>
@@ -204,7 +204,7 @@
     </div>
     <figure class="termwin" style="margin:0" aria-label="Terminal session showing lhp wrapping a dev server">
       <div class="termbar"><i></i><i></i><i></i><b>zsh — auth</b></div>
-      <div class="termbody" id="term"><div class="line"><span class="t-dim">~/work/my-repo/auth</span></div><div class="line"><span class="t-dim">$ </span><span class="t-cmd">pnpm dev</span></div><div class="line"> </div><div class="line"><span class="t-out">&gt; my-app@ dev</span></div><div class="line"><span class="t-out">&gt; lhp -- next dev</span></div><div class="line"> </div><div class="line"><span class="t-dim">  ┌ localhost-proxy</span></div><div class="line"><span class="t-dim">  │</span><span class="t-out"> worktree   auth.my-repo  (feature/auth)</span></div><div class="line"><span class="t-dim">  │</span><span class="t-out"> proxied    </span><span class="t-url">http://auth.my-repo.test</span></div><div class="line"><span class="t-dim">  │</span><span class="t-out"> upstream   http://localhost:52341</span></div><div class="line"><span class="t-dim">  └</span><span class="t-out"> running    next dev</span></div><div class="line"> </div><div class="line"><span class="t-out">  ▲ Next.js 16.2.4 (Turbopack)</span></div><div class="line"><span class="t-ok">  ✓ Ready in 243ms</span></div><div class="line"> </div><div class="line"><span class="t-dim">~/work/my-repo/main</span></div><div class="line"><span class="t-dim">$ </span><span class="t-cmd">lhp list</span></div><div class="line"><span class="t-out">auth.my-repo  </span><span class="t-url">http://auth.my-repo.test</span><span class="t-out">  -&gt;  :52341</span></div><div class="line"><span class="t-out">main.my-repo  </span><span class="t-url">http://main.my-repo.test</span><span class="t-out">  -&gt;  :52007</span></div><div class="line"><span class="t-dim">$ </span><span class="cursor"></span></div></div>
+      <div class="termbody" id="term"><div class="line"><span class="t-dim">~/work/my-repo/auth</span></div><div class="line"><span class="t-dim">$ </span><span class="t-cmd">pnpm dev</span></div><div class="line"> </div><div class="line"><span class="t-out">&gt; my-app@ dev</span></div><div class="line"><span class="t-out">&gt; lhp -- next dev</span></div><div class="line"> </div><div class="line"><span class="t-dim">  ┌ localhost-proxy</span></div><div class="line"><span class="t-dim">  │</span><span class="t-out"> worktree   feature-auth.my-repo  (feature/auth)</span></div><div class="line"><span class="t-dim">  │</span><span class="t-out"> proxied    </span><span class="t-url">http://feature-auth.my-repo.test</span></div><div class="line"><span class="t-dim">  │</span><span class="t-out"> upstream   http://localhost:52341</span></div><div class="line"><span class="t-dim">  └</span><span class="t-out"> running    next dev</span></div><div class="line"> </div><div class="line"><span class="t-out">  ▲ Next.js 16.2.4 (Turbopack)</span></div><div class="line"><span class="t-ok">  ✓ Ready in 243ms</span></div><div class="line"> </div><div class="line"><span class="t-dim">~/work/my-repo/main</span></div><div class="line"><span class="t-dim">$ </span><span class="t-cmd">lhp list</span></div><div class="line"><span class="t-out">feature-auth.my-repo  </span><span class="t-url">http://feature-auth.my-repo.test</span><span class="t-out">  -&gt;  :52341</span></div><div class="line"><span class="t-out">main.my-repo          </span><span class="t-url">http://main.my-repo.test</span><span class="t-out">  -&gt;  :52007</span></div><div class="line"><span class="t-dim">$ </span><span class="cursor"></span></div></div>
     </figure>
   </div>
 </header>
@@ -233,9 +233,9 @@
     <div class="duo">
       <div>
         <h3><span class="n">3</span>Run dev anywhere</h3>
-        <p>The worktree and repo names come from git — nothing to configure, no collisions between repos. The dashboard at <a href="http://test">http://test</a> shows everything running, grouped by repo.</p>
+        <p>The branch and repo names come from git — and in a monorepo each package gets its own <code>app</code> label, so <code>turbo run dev</code> registers the whole stack. Nothing to configure, no collisions. The dashboard at <a href="http://test">http://test</a> shows everything running, grouped by repo.</p>
       </div>
-      <div class="snippet"><div class="line"><span class="t-dim">$ </span><span class="t-cmd">pnpm dev</span></div><div class="line"><span class="t-out">  │ proxied    </span><span class="t-url">http://auth.my-repo.test</span></div></div>
+      <div class="snippet"><div class="line"><span class="t-dim">$ </span><span class="t-cmd">pnpm dev</span></div><div class="line"><span class="t-out">  │ proxied    </span><span class="t-url">http://feature-auth.my-repo.test</span></div></div>
     </div>
   </div>
 </section>
@@ -253,24 +253,25 @@
 <section id="config">
   <div class="wrap">
     <h2>Reference</h2>
-    <p class="section-lede">Defaults: proxy on <code style="font-family:var(--mono);font-size:.9em">:80</code>, domain <code style="font-family:var(--mono);font-size:.9em">.test</code>, names <code style="font-family:var(--mono);font-size:.9em">worktree.repo</code>. Change any of it, then <code style="font-family:var(--mono);font-size:.9em">lhp stop</code> — the daemon restarts with new settings on the next run.</p>
+    <p class="section-lede">Defaults: proxy on <code style="font-family:var(--mono);font-size:.9em">:80</code>, domain <code style="font-family:var(--mono);font-size:.9em">.test</code>, names <code style="font-family:var(--mono);font-size:.9em">branch.app.repo</code>. Change any of it, then <code style="font-family:var(--mono);font-size:.9em">lhp stop</code> — the daemon restarts with new settings on the next run. Full detail in the <a href="/docs/">docs</a>.</p>
     <div class="ref">
       <div class="ref-row"><code>lhp -- &lt;cmd…&gt;</code><span>Wrap a dev command — register, run, unregister on exit. The <code>--</code> is optional.</span></div>
       <div class="ref-row"><code>lhp list</code><span>Registered worktrees and their URLs</span></div>
       <div class="ref-row"><code>lhp status · lhp stop</code><span>Daemon status; stop the daemon</span></div>
       <div class="ref-row"><code>lhp config port 7777</code><span>Move the proxy off port 80 — URLs gain <code>:7777</code></span></div>
       <div class="ref-row"><code>lhp config domain localhost</code><span>Zero-setup mode: <code>*.localhost</code> resolves natively, no sudo step</span></div>
-      <div class="ref-row"><code>lhp config scheme worktree</code><span>Flat names without the repo subdomain</span></div>
+      <div class="ref-row"><code>lhp config scheme &lt;tokens&gt;</code><span>URL labels: a dot-list of <code>branch</code>, <code>app</code>, <code>worktree</code>, <code>repo</code></span></div>
       <div class="ref-row"><code>lhp config https on</code><span>Serve <code>https://</code> URLs via a local CA (name-constrained to your dev domains) — enables OAuth wildcard redirect URIs like <code>https://*.my-repo.test/…</code></span></div>
       <div class="ref-row"><code>lhp setup</code><span>One-time <code>/etc/resolver</code> entry for any non-localhost domain</span></div>
       <div class="ref-row"><code>--name · --port</code><span>Per-run overrides for the worktree name and upstream port</span></div>
     </div>
-    <p class="note" style="margin-top:1.5rem">Domains that can't work are refused with the reason: <code>.dev</code> and <code>.app</code> are HSTS-preloaded (browsers force https), <code>.local</code> belongs to Bonjour. <code>.test</code> is IETF-reserved; anything made up works. For OAuth providers, whitelist each worktree's callback URL — e.g. <code>http://auth.my-repo.test/api/auth/callback/okta</code>.</p>
+    <p class="note" style="margin-top:1.5rem">Domains that can't work are refused with the reason: <code>.dev</code> and <code>.app</code> are HSTS-preloaded (browsers force https), <code>.local</code> belongs to Bonjour. <code>.test</code> is IETF-reserved; anything made up works. For OAuth providers, whitelist each worktree's callback URL — e.g. <code>http://feature-auth.my-repo.test/api/auth/callback/okta</code>.</p>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
+    <a href="/docs/">Docs</a>
     <a href="https://github.com/smarchetti/localhost-proxy">GitHub</a>
     <a href="https://www.npmjs.com/package/@smarchetti/localhost-proxy">npm</a>
     <a href="https://github.com/smarchetti/localhost-proxy/blob/main/CHANGELOG.md">Changelog</a>

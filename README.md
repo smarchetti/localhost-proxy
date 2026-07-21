@@ -7,14 +7,14 @@ Stable per-worktree dev URLs. Stop juggling `localhost:3000` vs `:3001` vs `:300
 ```
 http://main.my-repo.test
 http://feature-auth.my-repo.test
-http://fix-billing.other-repo.test
+http://main.web.my-monorepo.test
 ```
 
-By default URLs are `http://<worktree>.<repo>.test` — no port (the proxy listens on 80, which needs no root on modern macOS) and grouped by repo. The `.test` domain needs a one-time `lhp setup` (sudo); if you'd rather have zero setup, `lhp config domain localhost` gives `*.localhost` URLs that resolve natively in every browser.
+By default URLs are `http://<branch>.<repo>.test` — and in a monorepo, `http://<branch>.<app>.<repo>.test` per package — no port (the proxy listens on 80, which needs no root on modern macOS) and grouped by repo. The `.test` domain needs a one-time `lhp setup` (sudo); if you'd rather have zero setup, `lhp config domain localhost` gives `*.localhost` URLs that resolve natively in every browser.
 
 ## How it works
 
-`lhp` wraps your dev command. It detects the worktree name (the worktree directory's basename), allocates a free port, exports it as `PORT`, registers `name → port` with a tiny reverse-proxy daemon (auto-started on first use), and runs your command. When the command exits, the route is removed.
+`lhp` wraps your dev command. It detects the branch, repo, and (in monorepos) the app package, allocates a free port, exports it as `PORT`, registers `name → port` with a tiny reverse-proxy daemon (auto-started on first use), and runs your command. When the command exits, the route is removed.
 
 The daemon listens on `localhost:7777`, routes by hostname, passes WebSockets through (HMR works), and serves a dashboard of everything running at [http://localhost:7777](http://localhost:7777).
 
@@ -68,8 +68,8 @@ Then `npm run dev` in any worktree prints its stable URL:
 
 ```
   ┌ localhost-proxy
-  │ worktree   feature-auth  (feature/auth)
-  │ proxied    http://feature-auth.localhost:7777
+  │ worktree   feature-auth.my-repo  (feature/auth)
+  │ proxied    http://feature-auth.my-repo.localhost:7777
   │ upstream   http://localhost:52341
   └ running    next dev
 ```
@@ -85,7 +85,7 @@ Then `npm run dev` in any worktree prints its stable URL:
 | `lhp config` | Show configuration (`~/.lhp/config.json`) |
 | `lhp config port <n>` | Set the proxy's listen port |
 | `lhp config domain <tld>` | Use a custom domain instead of `.localhost` |
-| `lhp config scheme worktree.repo` | Include the repo as a subdomain |
+| `lhp config scheme <tokens>` | URL labels: a dot-list of `branch`, `app`, `worktree`, `repo` |
 | `lhp setup` | One-time sudo step a custom domain needs |
 
 ### Options
@@ -96,7 +96,7 @@ Then `npm run dev` in any worktree prints its stable URL:
 
 ## Configuration
 
-Defaults: `port 80`, `domain test`, `scheme worktree.repo` — i.e. `http://<worktree>.<repo>.test`. Overrides live in `~/.lhp/config.json`, managed by `lhp config`. After changing them, run `lhp stop` — the daemon restarts with the new settings on your next dev run.
+Defaults: `port 80`, `domain test`, `scheme branch.app.repo` — i.e. `http://<branch>.<repo>.test`, with an `<app>` label added in monorepos. Overrides live in `~/.lhp/config.json`, managed by `lhp config`. After changing them, run `lhp stop` — the daemon restarts with the new settings on your next dev run.
 
 ### Proxy port
 
@@ -130,13 +130,37 @@ Why you'd want it: OAuth wildcard redirect URIs (e.g. Okta only wildcard-matches
 
 ### Naming scheme
 
-The default `worktree.repo` scheme scopes each worktree under its repo — with several repos each having worktrees, `feature-auth.my-repo.test` and `feature-auth.other-repo.test` never collide, and the dashboard groups by repo. The repo name comes from the main repository's directory name (all worktrees share it via the common `.git` dir), falling back to the `origin` remote. The main checkout doesn't double up: a repo checked out at `~/dev/my-repo` is just `my-repo.test`, not `my-repo.my-repo.test`.
+The scheme is a dot-list of label tokens composed left-to-right into the hostname. The default `branch.app.repo` gives `feature-auth.my-repo.test` — and `feature-auth.web.my-repo.test` for the `web` package of a monorepo. Tokens that resolve to nothing are skipped: `app` outside monorepos, `branch` outside git (the sanitized short SHA stands in on a detached HEAD).
+
+- `branch` — the checked-out branch, sanitized to DNS labels (`feature/auth` → `feature-auth`)
+- `app` — monorepos only: the nearest `package.json` walking up from where `lhp` runs (scope stripped: `@acme/web` → `web`); a `package.json` at the worktree root doesn't count, so single-package repos keep their shorter names
+- `worktree` — the worktree directory's basename
+- `repo` — the main repository's directory name (all worktrees share it via the common `.git` dir), falling back to the `origin` remote
+
+Repo scoping means worktrees of different repos never collide (`feature-auth.my-repo.test` vs `feature-auth.other-repo.test`), and the dashboard groups by repo. Adjacent duplicate labels collapse — under `worktree.repo`, a repo checked out at `~/dev/my-repo` is just `my-repo.test`, not `my-repo.my-repo.test`.
 
 ```sh
-lhp config scheme worktree    # flat: http://feature-auth.test
+lhp config scheme worktree.repo   # the pre-0.2 default: http://feature-auth.my-repo.test
+lhp config scheme worktree        # flat: http://feature-auth.test
 ```
 
 The wrapped command also receives `LHP_URL` and `LHP_NAME` in its environment, in case the app wants to print or use its public dev URL.
+
+### Monorepos
+
+Each app wraps its own dev script, and your task runner (turbo, nx, pnpm `-r`) stays the orchestrator — run the whole stack or one app with the filters you already use:
+
+```jsonc
+// apps/web/package.json — falls back cleanly where lhp isn't installed
+{ "scripts": { "dev": "if command -v lhp >/dev/null 2>&1; then exec lhp -- next dev; else exec next dev --port 3000; fi" } }
+```
+
+```sh
+turbo run dev                        # whole stack: main.web.my-repo.test, main.api.my-repo.test, …
+turbo run dev --filter=@acme/web     # just one app
+```
+
+Every app gets its own route (the app label keeps them from colliding), each on an auto-allocated port — so drop hardcoded `--port` flags from the lhp branch of the script. Because the names are stable, apps can reference each other by URL (`http://main.api.my-repo.test`) instead of `localhost:<port>`.
 
 ## Telling the app its public URL
 
@@ -144,12 +168,13 @@ Apps that build absolute URLs (auth flows, OAuth callbacks, share links) must bu
 
 - **Always**: `PORT`, `LHP_URL`, `LHP_NAME`.
 - **Built-in defaults** (only when not already set in your shell): `AUTH_URL`, `NEXTAUTH_URL`, and `AUTH_TRUST_HOST=true` for Auth.js/NextAuth — the most common case, harmless for apps that don't use them.
-- **Project config** for everything else: an `"lhp"` key in the app's `package.json` (or a `.lhp.json` at the worktree root) declaring the env vars *your* framework reads, with `{url}`, `{port}`, `{name}` placeholders:
+- **Project config** for everything else: an `"lhp"` key in a `package.json`, or a `.lhp.json` next to it, declaring the env vars *your* framework reads, with `{url}`, `{port}`, `{name}` placeholders:
 
 ```jsonc
 // package.json
 {
   "lhp": {
+    "app": "web",             // optional: override the app label in the URL
     "env": {
       "VITE_PUBLIC_URL": "{url}",
       "APP_HOST": "{url}",
@@ -158,6 +183,8 @@ Apps that build absolute URLs (auth flows, OAuth callbacks, share links) must bu
   }
 }
 ```
+
+Project config is hierarchical: every `package.json` `"lhp"` key and `.lhp.json` from the worktree root down to the directory `lhp` runs in is merged, closer-to-the-app winning per key (within one directory, `.lhp.json` beats `package.json`). In a monorepo, put stack-wide env in a `.lhp.json` at the worktree root and per-app overrides in each app's `package.json`.
 
 Precedence: shell env > project config > built-in defaults — an explicitly exported variable is never overridden. Shell env also beats `.env` files in Next, so injected values win over a stale `NEXTAUTH_URL=http://localhost:3000` in `.env.local`. The `{url}`/`{name}` placeholders also work in the wrapped command itself, alongside `{port}`.
 
